@@ -127,7 +127,8 @@ async function importSheet(url) {
 }
 
 // ───────── 상태 ─────────
-const keyOf = w => w.english.trim().toLowerCase();
+// 같은 단어가 여러 단원에 나올 수 있어서 단원까지 묶어서 구분한다
+const keyOf = w => `${w.unit}|${w.english}`.trim().toLowerCase();
 
 const state = {
   words: store.get('words', null) || parseWords(DEFAULT_CSV),
@@ -332,8 +333,9 @@ function makeQuestions(pool, all, count = 10) {
     const askEnglish = Math.random() < 0.5; // true: 영어 보고 뜻 고르기, false: 뜻 보고 영어 고르기
     const text = x => (askEnglish ? x.korean : x.english);
     const correct = text(w);
-    const wrongs = shuffle([...new Set(distractorPool.filter(x => keyOf(x) !== keyOf(w)).map(text))]
-      .filter(t => t !== correct)).slice(0, 3);
+    // 영어나 뜻이 같은 단어(color/paint = 색칠하다 등)는 오답 보기에서 뺀다
+    const same = x => x.korean === w.korean || x.english.toLowerCase() === w.english.toLowerCase();
+    const wrongs = shuffle([...new Set(distractorPool.filter(x => !same(x)).map(text))]).slice(0, 3);
     const choices = shuffle([...wrongs, correct]);
     return { word: w, askEnglish, choices, answer: choices.indexOf(correct) };
   });
