@@ -233,8 +233,8 @@ const empty = text => `<div class="empty">${esc(text)}</div>`;
 // ───────── 홈 ─────────
 function renderHome() {
   const us = units();
-  const chip = (u, label) =>
-    `<button class="chip ${state.unit === u ? 'on' : ''}" data-act="unit" data-unit="${esc(u ?? '')}">${esc(label)}</button>`;
+  const option = (u, label, n) =>
+    `<option value="${esc(u)}" ${(state.unit || '') === u ? 'selected' : ''}>${esc(label)} (${n}개)</option>`;
   const menu = (emoji, title, sub, color, href) =>
     `<button class="menu" style="background:${color}" data-act="nav" data-href="${href}">
       <span class="emoji">${emoji}</span><span><b>${title}</b><small>${esc(sub)}</small></span>
@@ -244,9 +244,11 @@ function renderHome() {
     back: false,
     right: `<button class="icon" data-act="nav" data-href="#/settings" aria-label="단어 불러오기">${ICON.gear}</button>`,
   }) + `<main>
-    ${us.length ? `<div class="label">단원 고르기</div>
-      <div class="chips">${chip(null, '전체')}${us.map(u => chip(u, u)).join('')}</div>` : ''}
-    <div class="count">공부할 단어 ${wordsFor('all').length}개</div>
+    ${us.length ? `<label class="unit-pick"><span>단원</span>
+      <select id="unit">
+        ${option('', '전체', state.words.length)}
+        ${us.map(u => option(u, u, state.words.filter(w => w.unit === u).length)).join('')}
+      </select></label>` : ''}
     ${menu('📖', '카드 학습', '카드를 넘기며 단어 외우기', '#FFCC80', '#/cards/all')}
     ${menu('✏️', '퀴즈', '뜻 맞히기 10문제', '#90CAF9', '#/quiz/all')}
     ${menu('📋', '단어 목록', '단어를 한눈에 보기', '#A5D6A7', '#/list/all')}
@@ -542,7 +544,6 @@ const actions = {
     store.set('wrong', [...state.wrong]);
     renderList(state.src);
   },
-  unit: el => { setUnit(el.dataset.unit || null); renderHome(); },
   flip: el => { cards.flipped = !cards.flipped; el.classList.toggle('flipped', cards.flipped); },
   prev: () => moveCard(-1),
   next: () => moveCard(1),
@@ -565,6 +566,10 @@ const actions = {
 $app.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (el && !el.disabled) actions[el.dataset.act]?.(el, e);
+});
+
+$app.addEventListener('change', e => {
+  if (e.target.id === 'unit') setUnit(e.target.value || null);
 });
 
 window.addEventListener('hashchange', route);

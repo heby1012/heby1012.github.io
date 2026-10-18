@@ -61,13 +61,16 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 
 /* 홈 */
 .label { font-size: 18px; font-weight: 800; margin-top: 4px; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip {
-  border: 1.5px solid var(--line); background: #fff;
-  border-radius: 10px; padding: 8px 14px; font-size: 15px;
+.unit-pick { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.unit-pick span { font-size: 18px; font-weight: 800; white-space: nowrap; }
+.unit-pick select {
+  flex: 1; min-width: 0; height: 52px; padding: 0 44px 0 16px;
+  border: 2px solid var(--primary); border-radius: 14px;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF7043'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E") no-repeat right 12px center / 28px;
+  font: inherit; font-size: 18px; font-weight: 700; color: var(--text);
+  appearance: none; -webkit-appearance: none;
 }
-.chip.on { background: var(--primary-container); border-color: var(--primary); font-weight: 700; }
-.count { color: var(--muted); font-size: 16px; }
+.unit-pick select:focus { outline: none; box-shadow: 0 0 0 3px var(--primary-container); }
 
 .menu {
   display: flex; align-items: center; gap: 16px;
