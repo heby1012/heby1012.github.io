@@ -1,21 +1,7 @@
 'use strict';
 
-// ───────── 기본 단어 (구글 시트를 연결하기 전까지 사용) ─────────
-const DEFAULT_CSV = `No.,Word,Meaning,Unit
-1,dream,꿈,UNIT 03 To My Teacher
-2,drone,드론,UNIT 03 To My Teacher
-3,guitar,기타,UNIT 03 To My Teacher
-4,hobby,취미,UNIT 03 To My Teacher
-5,pet,반려동물,UNIT 03 To My Teacher
-6,tent,텐트,UNIT 03 To My Teacher
-7,apartment,아파트,UNIT 03 To My Teacher
-8,camping,캠핑,UNIT 03 To My Teacher
-9,live,살다,UNIT 03 To My Teacher
-10,mobile game,핸드폰 게임,UNIT 03 To My Teacher
-11,near,근처에,UNIT 03 To My Teacher
-12,our,우리의,UNIT 03 To My Teacher
-13,teach,가르치다,UNIT 03 To My Teacher
-14,town,(작은) 도시,UNIT 03 To My Teacher`;
+// 기본 단어는 같은 폴더의 words.csv 에서 읽는다 (구글 시트를 연결하면 시트 단어를 대신 쓴다)
+const BUILTIN_CSV = 'words.csv';
 
 // ───────── 저장소 ─────────
 const store = {
@@ -131,7 +117,8 @@ async function importSheet(url) {
 const keyOf = w => `${w.unit}|${w.english}`.trim().toLowerCase();
 
 const state = {
-  words: store.get('words', null) || parseWords(DEFAULT_CSV),
+  // 지난번에 받아 둔 단어로 먼저 그리고, 새 단어는 아래에서 받아 온다
+  words: store.get(store.get('sheetUrl', '') ? 'words' : 'builtinWords', null) || [],
   stars: new Set(store.get('stars', [])),
   wrong: new Set(store.get('wrong', [])),
   unit: store.get('unit', null),
@@ -141,6 +128,22 @@ const state = {
 };
 
 const LABEL = { all: '단어', starred: '별표 단어', wrong: '오답 노트' };
+
+async function loadBuiltin() {
+  const res = await fetch(BUILTIN_CSV, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(`단어 파일을 불러오지 못했어요. (오류 ${res.status})`);
+  const words = parseWords(await res.text());
+  state.words = words;
+  if (state.unit && !units().includes(state.unit)) setUnit(null);
+  store.set('builtinWords', words);
+}
+
+// 단어가 바뀌면 공부 중인 카드·퀴즈는 그대로 두고, 목록 화면만 다시 그린다
+function refreshView() {
+  if (state.screen === 'home') renderHome();
+  else if (state.screen === 'list') renderList(state.src);
+  else if (state.screen === 'settings') renderSettings();
+}
 
 function units() {
   return [...new Set(state.words.map(w => w.unit).filter(Boolean))];
@@ -455,7 +458,8 @@ function renderSettings() {
   const draft = document.getElementById('sheet')?.value ?? state.sheetUrl;
   const same = draft.trim() && draft.trim() === state.sheetUrl;
   $app.innerHTML = header('단어 불러오기') + `<main>
-    <div class="label">구글 시트에서 단어 가져오기</div>
+    <div class="label">구글 시트에서 단어 가져오기 (선택)</div>
+    <div class="info">시트를 연결하지 않으면 웹사이트에 들어 있는 단어를 써요.</div>
     <div class="box">
       <ol>
         <li>1행에 제목을 적어요: <b>Word | Meaning | Unit</b><br>(영어 | 뜻 | 단원 | 예문 도 돼요. No. 열은 있어도 괜찮아요)</li>
@@ -492,17 +496,20 @@ async function loadFromSettings() {
   if (state.screen === 'settings') renderSettings();
 }
 
-function resetWords() {
+async function resetWords() {
   if (!confirm('기본 단어로 되돌릴까요?\n시트 연결이 풀리고, 별표와 오답 기록은 그대로 남아요.')) return;
-  state.words = parseWords(DEFAULT_CSV);
   state.sheetUrl = '';
-  setUnit(null);
   store.set('words', null);
   store.set('sheetUrl', '');
   const box = document.getElementById('sheet');
   if (box) box.value = '';
-  settingsMsg = { text: '기본 단어로 되돌렸어요.', ok: true };
-  renderSettings();
+  try {
+    await loadBuiltin();
+    settingsMsg = { text: '기본 단어로 되돌렸어요.', ok: true };
+  } catch (e) {
+    settingsMsg = { text: e.message, ok: false };
+  }
+  refreshView();
 }
 
 // ───────── 화면 이동 ─────────
@@ -570,12 +577,13 @@ if (location.hash && location.hash !== '#/') {
 }
 route();
 
-// 시트가 연결돼 있으면 열 때마다 새 단어를 받아 온다
-if (state.sheetUrl) {
-  importSheet(state.sheetUrl)
-    .then(() => { if (state.screen === 'home') renderHome(); })
-    .catch(() => {});
-}
+// 열 때마다 새 단어를 받아 온다 (시트가 연결돼 있으면 시트, 아니면 words.csv)
+(state.sheetUrl ? importSheet(state.sheetUrl) : loadBuiltin())
+  .then(refreshView)
+  .catch(() => {
+    // 시트를 못 받았는데 화면에 단어가 하나도 없으면 기본 단어라도 보여 준다
+    if (!state.words.length) loadBuiltin().then(refreshView).catch(() => {});
+  });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
