@@ -177,22 +177,41 @@ function markRight(w) {
 
 // ───────── 발음 ─────────
 let voice = null;
+let utterance = null; // 크롬이 말하는 도중에 지워 버리지 않게 붙잡아 둔다
+
+// 안드로이드는 언어 코드가 en_US 처럼 올 때도 있다
+const isEnglish = v => /^en[-_]/i.test(v.lang);
+const isUS = v => /^en[-_]us$/i.test(v.lang);
+
 function pickVoice() {
-  const voices = speechSynthesis.getVoices();
-  voice = voices.find(v => v.lang === 'en-US') || voices.find(v => v.lang.startsWith('en')) || null;
+  const en = speechSynthesis.getVoices().filter(isEnglish);
+  // 기기에 들어 있는(인터넷 없이 되는) 미국 영어 음성을 먼저 고른다
+  voice = en.find(v => isUS(v) && v.localService) || en.find(isUS) || en.find(v => v.localService) || en[0] || null;
 }
 if ('speechSynthesis' in window) {
   pickVoice();
   speechSynthesis.onvoiceschanged = pickVoice;
 }
+
 function speak(text) {
   if (!('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'en-US';
-  if (voice) u.voice = voice;
-  u.rate = 0.85;
-  speechSynthesis.speak(u);
+  const say = () => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = voice ? voice.lang.replace('_', '-') : 'en-US';
+    if (voice) u.voice = voice;
+    u.rate = 0.85;
+    u.volume = 1;
+    utterance = u;
+    speechSynthesis.speak(u);
+    if (speechSynthesis.paused) speechSynthesis.resume();
+  };
+  // 말하는 중에 cancel 하고 바로 speak 하면 안드로이드 크롬이 새 말을 버릴 때가 있다
+  if (speechSynthesis.speaking || speechSynthesis.pending) {
+    speechSynthesis.cancel();
+    setTimeout(say, 100);
+  } else {
+    say();
+  }
 }
 
 // ───────── 화면 조각 ─────────
@@ -230,6 +249,25 @@ const starBtn = key => {
 
 const empty = text => `<div class="empty">${esc(text)}</div>`;
 
+// 카카오톡 등 앱 안의 브라우저는 발음 기능이 없어서 크롬으로 열도록 안내한다
+const inKakao = /KAKAOTALK/i.test(navigator.userAgent);
+const inAppBrowser = inKakao || /; wv\)|NAVER|Instagram|FBAN|FBAV|Line\//i.test(navigator.userAgent);
+
+function openInChrome() {
+  const url = location.href.split('#')[0];
+  location.href = inKakao
+    ? 'kakaotalk://web/openExternal?url=' + encodeURIComponent(url)
+    : `intent://${location.host}${location.pathname}#Intent;scheme=https;package=com.android.chrome;end`;
+}
+
+const chromeBanner = () => inAppBrowser || !('speechSynthesis' in window)
+  ? `<div class="banner">
+      <b>🔇 여기서는 발음 소리가 안 나요</b>
+      <span>${inKakao ? '카카오톡' : '앱'} 안에서 열려서 그래요. 크롬으로 열면 소리가 나요.</span>
+      <button class="btn small" data-act="openChrome">크롬으로 열기</button>
+    </div>`
+  : '';
+
 // ───────── 홈 ─────────
 function renderHome() {
   const us = units();
@@ -244,6 +282,7 @@ function renderHome() {
     back: false,
     right: `<button class="icon" data-act="nav" data-href="#/settings" aria-label="단어 불러오기">${ICON.gear}</button>`,
   }) + `<main>
+    ${chromeBanner()}
     ${us.length ? `<label class="unit-pick"><span>단원</span>
       <select id="unit">
         ${option('', '전체', state.words.length)}
@@ -561,6 +600,7 @@ const actions = {
   retry: () => startQuiz(quiz.src),
   load: () => loadFromSettings(),
   reset: () => resetWords(),
+  openChrome: () => openInChrome(),
 };
 
 $app.addEventListener('click', e => {

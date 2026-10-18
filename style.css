@@ -61,7 +61,15 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 
 /* 홈 */
 .label { font-size: 18px; font-weight: 800; margin-top: 4px; }
-.unit-pick { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.banner {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 16px; border-radius: 16px;
+  background: #E3F2FD; border: 2px solid var(--secondary);
+}
+.banner b { font-size: 17px; }
+.banner span { font-size: 15px; color: #37474F; }
+.banner .btn { margin-top: 4px; background: var(--secondary); }
+.unit-pick {display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
 .unit-pick span { font-size: 18px; font-weight: 800; white-space: nowrap; }
 .unit-pick select {
   flex: 1; min-width: 0; height: 52px; padding: 0 44px 0 16px;
