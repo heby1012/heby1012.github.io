@@ -874,21 +874,23 @@ async function toggleRecord(k) {
   const video = sh.video;
   const chunks = [];
   const rec = new MediaRecorder(stream);
-  rec.ondataavailable = e => chunks.push(e.data);
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   rec.onstop = () => {
     stream.getTracks().forEach(t => t.stop());
     const blob = new Blob(chunks, { type: rec.mimeType });
-    recStore.put(recKey(video.id, k), blob).catch(() => {});
+    const empty = blob.size === 0;
+    if (!empty) recStore.put(recKey(video.id, k), blob).catch(() => {});
     if (sh?.video !== video) return;
     sh.recorder = null;
     sh.recIndex = null;
-    sh.recs.set(k, blob);
+    if (empty) alert('녹음이 안 됐어요. 조금 더 길게 말하고 다시 눌러 주세요.');
+    else sh.recs.set(k, blob);
     renderShadowPanel();
   };
   sh.recorder = rec;
   sh.recIndex = k;
   sh.i = k;
-  rec.start();
+  rec.start(250); // 0.25초마다 조각을 받아서 짧게 녹음해도 소리가 남게 한다
   renderShadowPanel();
   // 깜빡하고 안 끄면 30초 뒤 저절로 멈춘다
   setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 30000);
@@ -922,20 +924,20 @@ async function clearRecordings() {
 // ── 전체 녹음 내려받기: 문장 순서대로 이어 붙여 하나의 WAV 파일로 만든다 ──
 const EXPORT_RATE = 22050;
 
+// 휴대폰은 AudioContext 를 몇 개밖에 못 만들어서, 소리 장치를 쓰지 않는 OfflineAudioContext 하나로 모두 푼다.
+// OfflineAudioContext 로 풀면 EXPORT_RATE 로 맞춰서 나온다.
+let decoder = null;
+
 async function toMono(blob) {
-  const ctx = new AudioContext();
-  try {
-    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
-    // 휴대폰마다 녹음 형식이 달라서 같은 샘플레이트의 모노로 맞춘다
-    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * EXPORT_RATE)), EXPORT_RATE);
-    const src = off.createBufferSource();
-    src.buffer = decoded;
-    src.connect(off.destination);
-    src.start();
-    return (await off.startRendering()).getChannelData(0);
-  } finally {
-    ctx.close();
+  decoder = decoder || new OfflineAudioContext(1, 1, EXPORT_RATE);
+  const decoded = await decoder.decodeAudioData(await blob.arrayBuffer());
+  if (decoded.numberOfChannels === 1) return decoded.getChannelData(0);
+  const mono = new Float32Array(decoded.length);
+  for (let c = 0; c < decoded.numberOfChannels; c++) {
+    const ch = decoded.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / decoded.numberOfChannels;
   }
+  return mono;
 }
 
 function encodeWav(samples, rate) {
@@ -957,7 +959,16 @@ async function exportRecordings() {
   renderShadowPanel();
   try {
     const parts = [];
-    for (let k = 0; k < n; k++) parts.push(await toMono(sh.recs.get(k)));
+    const bad = [];
+    for (let k = 0; k < n; k++) {
+      try {
+        parts.push(await toMono(sh.recs.get(k)));
+      } catch {
+        // 너무 짧게 녹음하면 소리가 없어서 못 읽는다. 전체를 멈추지 않고 그 자리는 짧은 무음으로 채운다
+        bad.push(k + 1);
+        parts.push(new Float32Array(Math.round(EXPORT_RATE * 0.3)));
+      }
+    }
     const gap = Math.round(EXPORT_RATE * 0.5); // 문장 사이 0.5초 쉼
     const out = new Float32Array(parts.reduce((sum, p) => sum + p.length, 0) + gap * (n - 1));
     let pos = 0;
@@ -970,8 +981,9 @@ async function exportRecordings() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-  } catch {
-    alert('녹음 파일을 만들지 못했어요. 다시 시도해 주세요.');
+    if (bad.length) alert(`파일을 만들었어요. 다만 ${bad.join(', ')}번 문장은 너무 짧아서 소리가 비어 있어요.`);
+  } catch (e) {
+    alert(`녹음 파일을 만들지 못했어요. (${e.message})`);
   }
   if (sh?.video !== video) return;
   sh.exporting = false;
