@@ -621,15 +621,16 @@ async function startShadow(id) {
     opts: { rate: 1, repeat: 1, auto: true, ...store.get('shadowOpts', {}) },
     recorder: null, recUrl: null,
     loop: false, // 문장 목록에서 누른 문장을 계속 반복하는 중
-    editing: false,
-    // 문장 글자는 책 본문이라 공개 파일에 넣지 않고, 이 기기에만 저장한다
-    texts: store.get('shadowText.' + video.id, []),
+    texts: [],
+    lockMsg: '',
   };
   $app.innerHTML = header(video.title) + `<main class="shadow">
     <div class="video-box"><div id="yt"></div></div>
     <div id="sh-panel"></div>
   </main>`;
   renderShadowPanel();
+  // 이 기기에서 전에 맞힌 비밀번호가 있으면 문장 글자를 바로 연다
+  if (video.enc && store.get('shadowPass', '')) unlockShadow(store.get('shadowPass', ''), { silent: true });
 
   const YT = await loadYouTubeApi();
   if (!sh || sh.video !== video) return; // 그 사이에 다른 화면으로 나갔다
@@ -652,17 +653,8 @@ function renderShadowPanel() {
   const opt = (act, v, label, on) => `<button class="opt ${on ? 'on' : ''}" data-act="${act}" data-v="${v}">${label}</button>`;
   const text = k => sh.texts[k] || '';
 
-  if (sh.editing) {
-    panel.innerHTML = `
-      <div class="label">문장 글자 넣기</div>
-      <div class="info">한 줄에 한 문장씩 붙여 넣어 주세요. (${n}줄) 이 휴대폰에만 저장돼요.</div>
-      <label class="field"><textarea id="sh-text" rows="12" placeholder="The Dragon Tree&#10;The children meet a nasty dragon.&#10;…">${esc(sh.texts.join('\n'))}</textarea></label>
-      <div class="row">
-        <button class="btn outline" data-act="shEditCancel">취소</button>
-        <button class="btn" data-act="shEditSave">저장</button>
-      </div>`;
-    return;
-  }
+  const locked = video.enc && !sh.texts.length;
+  const typed = document.getElementById('sh-pass')?.value || ''; // 재생 중 다시 그려도 입력 중인 비밀번호를 지키기
 
   panel.innerHTML = `
     <div class="progress-text">문장 ${i + 1} / ${n} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
@@ -685,10 +677,15 @@ function renderShadowPanel() {
       <span>반복</span>${[1, 2, 3].map(v => opt('shRepeat', v, v + '번', opts.repeat === v)).join('')}
       <button class="opt ${opts.auto ? 'on' : ''}" data-act="shAuto">자동 넘김</button>
     </div>
-    <div class="sent-head">
-      <span class="label">${n} 문장</span>
-      <button class="opt" data-act="shEdit">✏️ 문장 글자 ${sh.texts.length ? '고치기' : '넣기'}</button>
-    </div>
+    <div class="label">${n} 문장</div>
+    ${locked ? `<form class="lock" data-form="unlock">
+      <b>🔒 비밀번호를 넣으면 문장 글자가 보여요</b>
+      <div class="row">
+        <input id="sh-pass" type="password" inputmode="numeric" autocomplete="off" placeholder="비밀번호" value="${esc(typed)}">
+        <button class="btn small" type="submit">확인</button>
+      </div>
+      ${sh.lockMsg ? `<div class="msg err">${esc(sh.lockMsg)}</div>` : ''}
+    </form>` : ''}
     <div class="info">문장을 누르면 그 문장만 계속 반복해요. 한 번 더 누르면 멈춰요.</div>
     <div class="sent-list">${video.segments.map(([a], k) => {
       const looping = sh.loop && sh.playing && k === i;
@@ -713,20 +710,32 @@ function toggleLoop(k) {
   playSentence(k, { loop: true });
 }
 
-function editShadowText(save) {
-  if (save) {
-    const lines = document.getElementById('sh-text').value.split('\n').map(l => l.trim()).filter(Boolean);
-    sh.texts = lines;
-    store.set('shadowText.' + sh.video.id, lines);
-    const n = sh.video.segments.length;
-    if (lines.length && lines.length !== n) alert(`문장이 ${lines.length}줄이에요. 영상은 ${n}문장이라 순서가 어긋날 수 있어요.`);
-  } else {
-    if (!sh.editing) pauseShadow();
-    sh.editing = !sh.editing;
-    renderShadowPanel();
-    return;
+// 문장 글자는 책 본문이라 비밀번호로 암호화해서 shadowing.json 에 넣어 두었다 (tools/encrypt-shadow.mjs)
+const b64bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function decryptTexts(enc, pass) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: b64bytes(enc.salt), iterations: 200000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['decrypt'],
+  );
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64bytes(enc.iv) }, key, b64bytes(enc.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function unlockShadow(pass, { silent = false } = {}) {
+  const video = sh.video;
+  try {
+    const texts = await decryptTexts(video.enc, pass.trim());
+    if (sh?.video !== video) return;
+    sh.texts = texts;
+    sh.lockMsg = '';
+    store.set('shadowPass', pass.trim()); // 다음부터는 묻지 않는다
+  } catch {
+    if (sh?.video !== video) return;
+    if (silent) store.set('shadowPass', ''); // 비밀번호가 바뀌었으면 다시 묻는다
+    else sh.lockMsg = '비밀번호가 맞지 않아요.';
   }
-  sh.editing = false;
   renderShadowPanel();
 }
 
@@ -890,9 +899,6 @@ const actions = {
   shPrev: () => playSentence(sh.i - 1),
   shNext: () => playSentence(sh.i + 1),
   shLoop: el => toggleLoop(Number(el.dataset.i)),
-  shEdit: () => editShadowText(false),
-  shEditCancel: () => editShadowText(false),
-  shEditSave: () => editShadowText(true),
   shRate: el => setShadowOption('rate', Number(el.dataset.v)),
   shRepeat: el => setShadowOption('repeat', Number(el.dataset.v)),
   shAuto: () => setShadowOption('auto', !sh.opts.auto),
@@ -903,6 +909,13 @@ const actions = {
 $app.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (el && !el.disabled) actions[el.dataset.act]?.(el, e);
+});
+
+$app.addEventListener('submit', e => {
+  if (e.target.dataset.form !== 'unlock') return;
+  e.preventDefault();
+  const pass = document.getElementById('sh-pass').value;
+  if (pass.trim()) unlockShadow(pass);
 });
 
 $app.addEventListener('change', e => {

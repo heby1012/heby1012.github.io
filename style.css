@@ -212,7 +212,18 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
   padding: 14px 16px; border-radius: 16px; background: #fff;
   font-size: 22px; font-weight: 700; line-height: 1.4; text-align: center;
 }
-.sent-head { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.lock {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px; border-radius: 16px; background: #F3E5F5; border: 2px solid #CE93D8;
+}
+.lock b { font-size: 16px; }
+.lock input {
+  min-width: 0; height: 50px; padding: 0 14px;
+  border: 1.5px solid var(--line); border-radius: 12px; background: #fff;
+  font: inherit; font-size: 20px; letter-spacing: 4px;
+}
+.lock input:focus { outline: none; border-color: #8E24AA; }
+.lock .btn { flex: 0 0 90px; background: #8E24AA; }
 .sent-list { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; background: #fff; }
 .sent {
   display: flex; align-items: center; gap: 14px;
