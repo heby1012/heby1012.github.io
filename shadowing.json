@@ -4,19 +4,20 @@
     "title": "The Dragon Tree",
     "level": "Oxford Reading Tree 5",
     "segments": [
-      [1.0, 5.7], [7.2, 10.7], [14.5, 18.0], [18.1, 21.5], [21.6, 25.0],
-      [33.2, 35.9], [36.0, 38.5], [42.1, 44.9], [44.9, 47.2], [47.1, 51.3],
+      [1, 5.7], [7.2, 10.7], [14.5, 18], [18.1, 21.5], [21.6, 25],
+      [33.2, 35.9], [36, 38.5], [42.1, 44.9], [44.9, 47.2], [47.1, 51.3],
       [59.9, 62.2], [62.3, 64.6], [64.7, 67.2], [70.7, 73.2], [73.4, 76.3],
-      [76.6, 79.6], [86.0, 88.95], [88.95, 92.4], [92.6, 95.3], [99.4, 101.9],
-      [101.95, 104.5], [104.7, 107.0], [114.0, 116.8], [117.1, 119.6], [119.7, 121.8],
-      [128.3, 131.15], [131.15, 137.6], [139.4, 143.85], [143.85, 148.0], [149.0, 152.2],
+      [76.6, 79.6], [86, 88.95], [88.95, 92.4], [92.6, 95.3], [99.4, 101.9],
+      [101.95, 104.5], [104.7, 107], [114, 116.8], [117.1, 119.6], [119.7, 121.8],
+      [128.3, 131.15], [131.15, 137.6], [139.4, 143.85], [143.85, 148], [149, 152.2],
       [154.5, 157.5], [157.6, 161.8], [165.5, 167.5], [167.6, 170.2], [170.8, 173.4],
       [178.6, 181.35], [181.4, 183.95], [183.95, 187.2], [191.4, 194.65], [194.65, 198.2],
-      [198.2, 201.7], [204.4, 206.3], [209.0, 211.4], [211.4, 214.85], [214.9, 217.1],
-      [218.8, 222.15], [222.15, 225.65], [225.7, 228.2], [230.0, 232.1], [232.15, 234.8],
-      [239.55, 242.35], [242.35, 244.1], [246.3, 249.0], [250.3, 252.4], [260.5, 263.9],
-      [263.9, 266.6], [267.4, 269.0], [272.0, 274.1], [274.1, 276.1], [285.6, 287.45],
-      [287.45, 289.8], [289.9, 292.0], [296.9, 301.9]
-    ]
+      [198.2, 201.7], [204.4, 206.3], [209, 211.4], [211.4, 214.85], [214.9, 217.1],
+      [218.8, 222.15], [222.15, 225.65], [225.7, 228.2], [230, 232.1], [232.15, 234.8],
+      [239.55, 242.35], [242.35, 244.1], [246.3, 249], [250.3, 252.4], [260.5, 263.9],
+      [263.9, 266.6], [267.4, 269], [272, 274.1], [274.1, 276.1], [285.6, 287.45],
+      [287.45, 289.8], [289.9, 292], [296.9, 301.9]
+    ],
+    "enc": {"salt":"q6Gq1etlDsTuUTGjqxDY6Q==","iv":"6nBe9ZFMZRyPxoCL","data":"nvnGvamNgm6H0QF9e2i60d6LgnFSzzvKkNzMqtPZkZpDbz9838oB2gwhp84+VlGFeWHcLrxkV2DSJxmNsTT+TugwJvMogZxaBTBmcIRmNuZjk2f57I3DETYJdiI1WuM2Xep3TNCclPekXDUiKN6ylXWkv3AF2W9dgDyE9B4DFAhiHZc8rcviQ49pCw16YXMkmb0SnWO0tTmpqUjRsxmrY3r5EPhKYMWYNXpdwh6m5aRzTJurpxxOeWir80xYp/i3gsM/v4MpvyfgTYs6wDcuXZE6oZP71sRWKdBHdTlhOQ/1cqGa/gdUbSwZK/dyTGDC2JGyAVpZlWhhXEEtVPa/eO9idBgQpykDHqqwXJiVIreJ10rs7Fpf9KMg2P1z/UeVMijGVQf0LE5K5rIR185t91/qHdwpmwZ9SeabBwVJ7t9cEnVVG4Jy5Wd+D28NeIdOt8AUPvr1yJdS6FqYRDwF3HsmgnlVr6rYN8RtIAhgjEbGxmDvL2lHs1mvGC9mRz9t59v/oGvjbYDI5AU2n+8iOu3QIQRk9FgAn+81H7tiuunha62xFNXFN3AO6efjxBTA3bUk/TPqlP2GFTMXg7Ft3MwR1q4JwwB7+O5uJBKXG2ceKVfr1FmJ9DJDYdme9GUATaoy3Oqj6g7zug57+HM81IgL3beAZo1frGEpPNt9X6gX9tCeAkUg3DtylvnnJZTWJ/ah2/0z4JeYYbznukHGJTbFx5H3flgApsuTifWgvgAKCNzXImbtEvQpmdO3uEpcrPE+O1b8hcc5BNNTn7S7ZsUF+wHCHnW+slTFYXnnc/lFb3Lz1nhFsSRMaoSlP1oj/ABU+mzHyPWFBYQGvTa49V6USNQ4FSBtF4mGTeRfCadVFTPxzPt251Qt5do31LxgMaXYiW7hdnPl09R8a6He94Qa9ECSaVCwyHewi9SkwivcTDjqzFPBF55Lw19N2g0LNiAOn4cBhtR0v7bmEEiiuNw+V8aMyoIl2eoW0L6Bk+oBN2zUdpEpRN6huJnmewzNeygZ3rKQwimaQrppPPxkiWV64YLIUpOZAO7lMuPYlY89jkLyPS7s4xZXrITHlWFhQihhLkWWQsRyPb9qfSGm2GIkGaCLPxCijX9mzr2o/vihIpHuB+VN567PbH69sIUbI6UjmZHlSZzaVU63V3dMpAAQOVhcn70CNcLPj/NcSJrc2+KPXSFywVYrHxQxGDPTMjQsg24VYVx5303+kEgSw7KLCqeCapkq/6W4WDGtyylOqCR3rb3rohzDkirVVLzf2AUeLHjGaslQv7UQZaPdQrqywjzah4hiZQuV324eYr4YsMWiP8Xi55karMdRDwwTYKes3RIdypPjBWq6X3oi0oZiTdput+wJprUIqrJY3WnO6BsEOvH7qvrwLl+Opq85ANEvIUmUAK4Zbdmu2UNs4sjZt8GZhOCe98qJ8/BY/43DGKYqWjGzDpNtVIdfmtURXsRMtS2HO9ModlMjfJxGBR+cqBZQ72FBJhqvI0+SzdmZW0ibmgBO8TrkV1KUwUYxQLHvycVAiFWfzVpf7TEoaS4NpmGrizSy2XdoXCaICL0AG/anYepfrlpitspK0YqbVN2CW5e4dhgyg9gKZcEyO9PIs1E9BlLeeiTuXGRcgOK6360bH7m7SElU/fhkK0FCkrbdswSPRnR4VvnzFEvaG/+dUbPZn9sQGBztPx3clwGeCtGuCX5tTLaYfc1auMWhXVwKcmuilqMZTl3b+p2BR+Exhrl6ezTMjspVh5Kn0/6zMF60OGwNF8nYeTq4aBBlRcWtGIO42tPEmA6coCJuMTg4zvC9uiN7eXr0YyGGZK4bl6D5S/9viFE2T3PZc25sT1bN79R6MXATiyX6IHpozXvbbl3qy33hShDj5gzlVwgZoaZ6/KmO9Yzm8vy8sL3M+Gdx5eyNJI4/kPLcYak4IYbg/c9t+VxTo2E1GX9gX3WkRVTHZlXlqwob6IUxw8T/JJvbfrpq4GcGkLJD/l+ZZV5wrASzY1WipV2IbGKXJCquriqH9dJD6hQqT75DBbnh3fZ1Ypp2VYHM8fgBOHEw51xPa/f7uwyuZdTZ8o1lX+WaUu3ygW1tPe6xH6RZZq8ufLoaS9Or8tiQZnWh9XGXXJDdErHF+0hpdgGyWbSPolszyyNtnMIr+McvSciMugN8UKhTy1L3ZQ8cVUxVMWJkMGICyVNmiMTg+FsDE44aGy1f7tdNtDxUAweT2zKo+0NCz7U68G+Mtqt9RhAQsbsACuFE39R1mOMo9Sc1AUsWotSuA8/OTN85gUK1z0sby6ksdt63e3D9HNaI3o5OxCve6qK+MPDRq+40KoIvKLOjYG8pYQ=="}
   }
 ]
