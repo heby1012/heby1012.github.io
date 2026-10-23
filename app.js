@@ -293,6 +293,7 @@ function renderHome() {
     ${menu('📋', '단어 목록', '단어를 한눈에 보기', '#A5D6A7', '#/list/all')}
     ${menu('⭐', '별표 단어', `${wordsFor('starred').length}개`, '#FFF59D', '#/list/starred')}
     ${menu('❌', '오답 노트', `틀린 단어 ${wordsFor('wrong').length}개`, '#EF9A9A', '#/list/wrong')}
+    ${menu('🎧', 'Shadowing', '영상 보며 문장 따라 말하기', '#CE93D8', '#/shadow')}
   </main>`;
 }
 
@@ -553,6 +554,226 @@ async function resetWords() {
   refreshView();
 }
 
+// ───────── Shadowing ─────────
+// shadowing.json 에는 영상 id 와 문장별 [시작, 끝] 초만 들어 있다. 문장 글자는 영상 화면과 YouTube 자막으로 본다.
+let shadowVideos = null;
+let sh = null; // 지금 열려 있는 쉐도잉 화면의 상태
+let ytApi = null;
+
+const fmtTime = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+async function loadShadowVideos() {
+  if (!shadowVideos) {
+    const res = await fetch('shadowing.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`영상 목록을 불러오지 못했어요. (오류 ${res.status})`);
+    shadowVideos = await res.json();
+  }
+  return shadowVideos;
+}
+
+function loadYouTubeApi() {
+  if (!ytApi) {
+    ytApi = new Promise(resolve => {
+      window.onYouTubeIframeAPIReady = () => resolve(window.YT);
+      const s = document.createElement('script');
+      s.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(s);
+    });
+  }
+  return ytApi;
+}
+
+async function renderShadowList() {
+  $app.innerHTML = header('Shadowing') + empty('불러오는 중…');
+  let videos;
+  try {
+    videos = await loadShadowVideos();
+  } catch (e) {
+    $app.innerHTML = header('Shadowing') + empty(e.message);
+    return;
+  }
+  if (location.hash !== '#/shadow') return; // 그 사이에 다른 화면으로 나갔다
+  $app.innerHTML = header('Shadowing') + `<main>
+    <div class="info">영상을 한 문장씩 듣고 바로 따라 말해 보세요.</div>
+    ${videos.map(v => `
+      <button class="video-card" data-act="nav" data-href="#/shadow/${esc(v.id)}">
+        <img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy">
+        <span><b>${esc(v.title)}</b><small>${esc(v.level || '')} · ${v.segments.length}문장</small></span>
+      </button>`).join('')}
+  </main>`;
+}
+
+async function startShadow(id) {
+  let video;
+  try {
+    video = (await loadShadowVideos()).find(v => v.id === id);
+  } catch (e) {
+    $app.innerHTML = header('Shadowing') + empty(e.message);
+    return;
+  }
+  if (!video) {
+    $app.innerHTML = header('Shadowing') + empty('영상을 찾지 못했어요.');
+    return;
+  }
+  sh = {
+    video, i: 0, player: null, playing: false, left: 0, timer: null, wait: null,
+    opts: { rate: 1, repeat: 1, auto: true, ...store.get('shadowOpts', {}) },
+    recorder: null, recUrl: null,
+  };
+  $app.innerHTML = header(video.title) + `<main class="shadow">
+    <div class="video-box"><div id="yt"></div></div>
+    <div id="sh-panel"></div>
+  </main>`;
+  renderShadowPanel();
+
+  const YT = await loadYouTubeApi();
+  if (!sh || sh.video !== video) return; // 그 사이에 다른 화면으로 나갔다
+  sh.player = new YT.Player('yt', {
+    videoId: video.id,
+    playerVars: { playsinline: 1, rel: 0, cc_load_policy: 1, cc_lang_pref: 'en', hl: 'ko' },
+    events: {
+      onReady: () => sh?.player?.setPlaybackRate(sh.opts.rate),
+    },
+  });
+}
+
+function renderShadowPanel() {
+  const panel = document.getElementById('sh-panel');
+  if (!sh || !panel) return;
+  const { video, i, opts } = sh;
+  const n = video.segments.length;
+  const [s, e] = video.segments[i];
+  const recording = sh.recorder?.state === 'recording';
+  const opt = (act, v, label, on) => `<button class="opt ${on ? 'on' : ''}" data-act="${act}" data-v="${v}">${label}</button>`;
+
+  panel.innerHTML = `
+    <div class="progress-text">문장 ${i + 1} / ${n} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
+    <div class="progress"><div style="width:${((i + 1) / n) * 100}%"></div></div>
+    <div class="sh-controls">
+      <button class="round" data-act="shPrev" ${i === 0 ? 'disabled' : ''} aria-label="이전 문장">⏮</button>
+      <button class="round" data-act="shReplay" aria-label="다시 듣기">🔁</button>
+      <button class="round big" data-act="shPlay" aria-label="${sh.playing ? '멈추기' : '듣기'}">${sh.playing ? '⏸' : '▶'}</button>
+      <button class="round" data-act="shNext" ${i === n - 1 ? 'disabled' : ''} aria-label="다음 문장">⏭</button>
+    </div>
+    <div class="rec-row">
+      <button class="btn ${recording ? 'rec-on' : ''}" data-act="shRec">${recording ? '⏹ 녹음 끝내기' : '🎤 따라 말하고 녹음'}</button>
+      <button class="btn outline" data-act="shMine" ${sh.recUrl && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
+    </div>
+    <div class="opts">
+      <span>속도</span>${[0.5, 0.75, 1].map(v => opt('shRate', v, v + 'x', opts.rate === v)).join('')}
+    </div>
+    <div class="opts">
+      <span>반복</span>${[1, 2, 3].map(v => opt('shRepeat', v, v + '번', opts.repeat === v)).join('')}
+      <button class="opt ${opts.auto ? 'on' : ''}" data-act="shAuto">자동 넘김</button>
+    </div>
+    <div class="label">문장 고르기</div>
+    <div class="seg-grid">${video.segments.map((_, k) =>
+      `<button class="seg ${k === i ? 'on' : ''}" data-act="shGo" data-i="${k}">${k + 1}</button>`).join('')}</div>
+  `;
+}
+
+function clearShadowTimers() {
+  clearInterval(sh.timer);
+  clearTimeout(sh.wait);
+}
+
+// i 번째 문장을 처음부터 (반복 횟수만큼) 들려준다
+function playSentence(i) {
+  if (!sh) return;
+  const n = sh.video.segments.length;
+  sh.i = Math.max(0, Math.min(n - 1, i));
+  sh.left = sh.opts.repeat;
+  playSegment();
+}
+
+function playSegment() {
+  clearShadowTimers();
+  const p = sh.player;
+  if (!p?.seekTo) { renderShadowPanel(); return; } // 영상이 아직 준비되지 않았다
+  const [s, e] = sh.video.segments[sh.i];
+  p.setPlaybackRate(sh.opts.rate);
+  p.seekTo(s, true);
+  p.playVideo();
+  sh.playing = true;
+  renderShadowPanel();
+  sh.timer = setInterval(() => {
+    if (p.getCurrentTime() < e - 0.05) return;
+    p.pauseVideo();
+    clearInterval(sh.timer);
+    sh.left--;
+    // 문장을 들은 만큼 따라 말할 시간을 준다
+    const gap = Math.max(1500, ((e - s) / sh.opts.rate) * 1000 + 500);
+    if (sh.left > 0) {
+      sh.wait = setTimeout(playSegment, gap);
+    } else if (sh.opts.auto && sh.i < sh.video.segments.length - 1) {
+      sh.wait = setTimeout(() => playSentence(sh.i + 1), gap);
+    } else {
+      sh.playing = false;
+      renderShadowPanel();
+    }
+  }, 50);
+}
+
+function pauseShadow() {
+  clearShadowTimers();
+  sh.player?.pauseVideo?.();
+  sh.playing = false;
+  renderShadowPanel();
+}
+
+function setShadowOption(key, value) {
+  sh.opts[key] = value;
+  store.set('shadowOpts', sh.opts);
+  if (key === 'rate') sh.player?.setPlaybackRate?.(value);
+  renderShadowPanel();
+}
+
+async function toggleRecord() {
+  if (sh.recorder?.state === 'recording') {
+    sh.recorder.stop();
+    return;
+  }
+  pauseShadow();
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    alert('마이크를 쓸 수 없어요. 크롬에서 열고 마이크 사용을 허용해 주세요.');
+    return;
+  }
+  const chunks = [];
+  const rec = new MediaRecorder(stream);
+  rec.ondataavailable = e => chunks.push(e.data);
+  rec.onstop = () => {
+    stream.getTracks().forEach(t => t.stop());
+    if (!sh) return;
+    if (sh.recUrl) URL.revokeObjectURL(sh.recUrl);
+    sh.recUrl = URL.createObjectURL(new Blob(chunks, { type: rec.mimeType }));
+    renderShadowPanel();
+    playMine();
+  };
+  sh.recorder = rec;
+  rec.start();
+  renderShadowPanel();
+  // 깜빡하고 안 끄면 문장 길이의 3배쯤에서 저절로 멈춘다
+  const [s, e] = sh.video.segments[sh.i];
+  setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, Math.max(5000, (e - s) * 3000));
+}
+
+function playMine() {
+  if (sh?.recUrl) new Audio(sh.recUrl).play();
+}
+
+// 쉐도잉 화면을 떠날 때 영상과 녹음을 정리한다
+function stopShadow() {
+  if (!sh) return;
+  clearShadowTimers();
+  if (sh.recorder?.state === 'recording') sh.recorder.stop();
+  try { sh.player?.destroy?.(); } catch {}
+  if (sh.recUrl) URL.revokeObjectURL(sh.recUrl);
+  sh = null;
+}
+
 // ───────── 화면 이동 ─────────
 function route() {
   const [, screen = '', src = 'all'] = location.hash.replace(/^#/, '').split('/');
@@ -560,7 +781,11 @@ function route() {
   state.screen = screen || 'home';
   state.src = s;
   if (screen !== 'settings') settingsMsg = null;
-  if (screen === 'cards') startCards(s);
+  stopShadow();
+  if (screen === 'shadow') {
+    if (src && src !== 'all') startShadow(src); else renderShadowList();
+  }
+  else if (screen === 'cards') startCards(s);
   else if (screen === 'quiz') startQuiz(s);
   else if (screen === 'list') renderList(s);
   else if (screen === 'settings') renderSettings();
@@ -601,6 +826,16 @@ const actions = {
   load: () => loadFromSettings(),
   reset: () => resetWords(),
   openChrome: () => openInChrome(),
+  shPlay: () => (sh.playing ? pauseShadow() : playSentence(sh.i)),
+  shReplay: () => playSentence(sh.i),
+  shPrev: () => playSentence(sh.i - 1),
+  shNext: () => playSentence(sh.i + 1),
+  shGo: el => playSentence(Number(el.dataset.i)),
+  shRate: el => setShadowOption('rate', Number(el.dataset.v)),
+  shRepeat: el => setShadowOption('repeat', Number(el.dataset.v)),
+  shAuto: () => setShadowOption('auto', !sh.opts.auto),
+  shRec: () => toggleRecord(),
+  shMine: () => playMine(),
 };
 
 $app.addEventListener('click', e => {

@@ -167,6 +167,51 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 .item b { display: block; font-size: 22px; }
 .item span { font-size: 17px; color: #6D4C41; }
 
+/* Shadowing */
+.video-card {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; padding: 10px; border: 0; border-radius: 18px;
+  background: #fff; text-align: left; box-shadow: 0 2px 6px rgba(0,0,0,.08);
+}
+.video-card img { width: 128px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; flex: none; }
+.video-card b { display: block; font-size: 18px; }
+.video-card small { display: block; margin-top: 4px; font-size: 14px; color: var(--muted); }
+
+.shadow { padding-top: 0; }
+.video-box {
+  position: sticky; top: 60px; z-index: 4;
+  margin: 0 -16px; aspect-ratio: 16 / 9; background: #000;
+}
+.video-box iframe, .video-box #yt { width: 100%; height: 100%; border: 0; display: block; }
+#sh-panel { display: flex; flex-direction: column; gap: 12px; }
+.progress-text small { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+
+.sh-controls { display: flex; justify-content: center; align-items: center; gap: 14px; }
+.round {
+  width: 58px; height: 58px; border-radius: 50%;
+  border: 2px solid var(--line); background: #fff; font-size: 24px;
+}
+.round.big { width: 76px; height: 76px; border: 0; background: var(--primary); color: #fff; font-size: 32px; }
+.round:active { transform: scale(.95); }
+
+.rec-row { display: flex; gap: 10px; }
+.rec-row .btn { flex: 1; min-height: 52px; font-size: 16px; padding: 0 10px; }
+.rec-row .btn:first-child { flex: 1.4; background: #8E24AA; }
+.rec-row .btn.rec-on { background: #D32F2F; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .7; } }
+
+.opts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opts span { font-weight: 800; width: 36px; }
+.opt {
+  padding: 8px 14px; border-radius: 10px;
+  border: 1.5px solid var(--line); background: #fff; font-size: 15px;
+}
+.opt.on { background: var(--primary-container); border-color: var(--primary); font-weight: 700; }
+
+.seg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; }
+.seg { height: 44px; border-radius: 10px; border: 1.5px solid var(--line); background: #fff; font-size: 16px; }
+.seg.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 800; }
+
 /* 빈 화면 */
 .empty {
   flex: 1; display: flex; align-items: center; justify-content: center;
