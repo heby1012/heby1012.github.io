@@ -619,7 +619,9 @@ async function startShadow(id) {
   sh = {
     video, i: 0, player: null, playing: false, left: 0, timer: null, wait: null,
     opts: { rate: 1, repeat: 1, auto: true, ...store.get('shadowOpts', {}) },
-    recorder: null, recUrl: null,
+    recorder: null, recIndex: null, // 지금 녹음 중인 문장 번호
+    recs: new Map(), // 문장 번호 → 내 녹음(Blob)
+    audio: null, exporting: false,
     loop: false, // 문장 목록에서 누른 문장을 계속 반복하는 중
     texts: [],
     lockMsg: '',
@@ -629,6 +631,7 @@ async function startShadow(id) {
     <div id="sh-panel"></div>
   </main>`;
   renderShadowPanel();
+  loadRecordings(video);
   // 이 기기에서 전에 맞힌 비밀번호가 있으면 문장 글자를 바로 연다
   if (video.enc && store.get('shadowPass', '')) unlockShadow(store.get('shadowPass', ''), { silent: true });
 
@@ -667,8 +670,8 @@ function renderShadowPanel() {
       <button class="round" data-act="shNext" ${i === n - 1 ? 'disabled' : ''} aria-label="다음 문장">⏭</button>
     </div>
     <div class="rec-row">
-      <button class="btn ${recording ? 'rec-on' : ''}" data-act="shRec">${recording ? '⏹ 녹음 끝내기' : '🎤 따라 말하고 녹음'}</button>
-      <button class="btn outline" data-act="shMine" ${sh.recUrl && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
+      <button class="btn ${recording && sh.recIndex === i ? 'rec-on' : ''}" data-act="shRec" data-i="${i}">${recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : '🎤 이 문장 녹음'}</button>
+      <button class="btn outline" data-act="shMine" data-i="${i}" ${sh.recs.has(i) && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
     </div>
     <div class="opts">
       <span>속도</span>${[0.5, 0.75, 1].map(v => opt('shRate', v, v + 'x', opts.rate === v)).join('')}
@@ -686,13 +689,26 @@ function renderShadowPanel() {
       </div>
       ${sh.lockMsg ? `<div class="msg err">${esc(sh.lockMsg)}</div>` : ''}
     </form>` : ''}
-    <div class="info">문장을 누르면 그 문장만 계속 반복해요. 한 번 더 누르면 멈춰요.</div>
+    <div class="rec-sum">
+      <div><b>🎤 내 녹음 ${sh.recs.size} / ${n}</b>
+        <span>${sh.recs.size === n ? '모두 녹음했어요! 🎉' : `${n - sh.recs.size}문장 남았어요`}</span></div>
+      <button class="btn small block" data-act="shExport" ${sh.recs.size === n && !sh.exporting && !recording ? '' : 'disabled'}>
+        ${sh.exporting ? '파일 만드는 중…' : '⬇️ 전체 녹음 내려받기'}</button>
+      ${sh.recs.size ? '<button class="link" data-act="shRecClear">녹음 모두 지우기</button>' : ''}
+    </div>
+    <div class="info">문장을 누르면 그 문장만 계속 반복해요. 🎤를 누르면 녹음, 한 번 더 누르면 끝나요.</div>
     <div class="sent-list">${video.segments.map(([a], k) => {
       const looping = sh.loop && sh.playing && k === i;
-      return `<button class="sent ${k === i ? 'on' : ''}" data-act="shLoop" data-i="${k}">
-        <span class="num">${looping ? '🔁' : k + 1}</span>
-        <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
-      </button>`;
+      const recNow = recording && sh.recIndex === k;
+      return `<div class="sent ${k === i ? 'on' : ''}">
+        <button class="sent-main" data-act="shLoop" data-i="${k}">
+          <span class="num">${looping ? '🔁' : k + 1}</span>
+          <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
+        </button>
+        ${sh.recs.has(k) && !recNow ? `<button class="mini play" data-act="shMine" data-i="${k}" aria-label="내 녹음 듣기">▶</button>` : ''}
+        <button class="mini mic ${recNow ? 'rec-on' : sh.recs.has(k) ? 'done' : ''}" data-act="shRec" data-i="${k}"
+          aria-label="${recNow ? '녹음 끝내기' : '녹음하기'}">${recNow ? '⏹' : '🎤'}</button>
+      </div>`;
     }).join('')}</div>
   `;
 }
@@ -796,12 +812,54 @@ function setShadowOption(key, value) {
   renderShadowPanel();
 }
 
-async function toggleRecord() {
+// ── 내 녹음: 문장마다 휴대폰(IndexedDB)에 저장해서 화면을 닫았다 열어도 남는다 ──
+const recStore = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((resolve, reject) => {
+    const req = indexedDB.open('wordbook', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('recordings');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }));
+  const run = async (mode, fn) => {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('recordings', mode);
+      const req = fn(tx.objectStore('recordings'));
+      tx.oncomplete = () => resolve(req?.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  };
+  return {
+    get: key => run('readonly', s => s.get(key)),
+    put: (key, blob) => run('readwrite', s => s.put(blob, key)),
+    del: key => run('readwrite', s => s.delete(key)),
+    keys: () => run('readonly', s => s.getAllKeys()),
+  };
+})();
+
+const recKey = (id, k) => `${id}:${k}`;
+
+async function loadRecordings(video) {
+  try {
+    const keys = (await recStore.keys()).filter(key => String(key).startsWith(video.id + ':'));
+    for (const key of keys) {
+      const blob = await recStore.get(key);
+      if (sh?.video !== video) return;
+      if (blob) sh.recs.set(Number(String(key).split(':')[1]), blob);
+    }
+    renderShadowPanel();
+  } catch {} // 사생활 보호 모드 등에서는 저장 없이 이 화면에서만 쓴다
+}
+
+// 한 번 누르면 녹음 시작, 한 번 더 누르면 끝
+async function toggleRecord(k) {
   if (sh.recorder?.state === 'recording') {
     sh.recorder.stop();
     return;
   }
   pauseShadow();
+  stopMine();
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -809,27 +867,111 @@ async function toggleRecord() {
     alert('마이크를 쓸 수 없어요. 크롬에서 열고 마이크 사용을 허용해 주세요.');
     return;
   }
+  const video = sh.video;
   const chunks = [];
   const rec = new MediaRecorder(stream);
   rec.ondataavailable = e => chunks.push(e.data);
   rec.onstop = () => {
     stream.getTracks().forEach(t => t.stop());
-    if (!sh) return;
-    if (sh.recUrl) URL.revokeObjectURL(sh.recUrl);
-    sh.recUrl = URL.createObjectURL(new Blob(chunks, { type: rec.mimeType }));
+    const blob = new Blob(chunks, { type: rec.mimeType });
+    recStore.put(recKey(video.id, k), blob).catch(() => {});
+    if (sh?.video !== video) return;
+    sh.recorder = null;
+    sh.recIndex = null;
+    sh.recs.set(k, blob);
     renderShadowPanel();
-    playMine();
   };
   sh.recorder = rec;
+  sh.recIndex = k;
+  sh.i = k;
   rec.start();
   renderShadowPanel();
-  // 깜빡하고 안 끄면 문장 길이의 3배쯤에서 저절로 멈춘다
-  const [s, e] = sh.video.segments[sh.i];
-  setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, Math.max(5000, (e - s) * 3000));
+  // 깜빡하고 안 끄면 30초 뒤 저절로 멈춘다
+  setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 30000);
 }
 
-function playMine() {
-  if (sh?.recUrl) new Audio(sh.recUrl).play();
+function stopMine() {
+  if (!sh?.audio) return;
+  sh.audio.pause();
+  URL.revokeObjectURL(sh.audio.src);
+  sh.audio = null;
+}
+
+function playMine(k) {
+  const blob = sh?.recs.get(k);
+  if (!blob) return;
+  stopMine();
+  pauseShadow();
+  sh.audio = new Audio(URL.createObjectURL(blob));
+  sh.audio.play();
+}
+
+async function clearRecordings() {
+  if (!confirm('이 영상의 내 녹음을 모두 지울까요?')) return;
+  const video = sh.video;
+  await Promise.all([...sh.recs.keys()].map(k => recStore.del(recKey(video.id, k)).catch(() => {})));
+  if (sh?.video !== video) return;
+  sh.recs.clear();
+  renderShadowPanel();
+}
+
+// ── 전체 녹음 내려받기: 문장 순서대로 이어 붙여 하나의 WAV 파일로 만든다 ──
+const EXPORT_RATE = 22050;
+
+async function toMono(blob) {
+  const ctx = new AudioContext();
+  try {
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    // 휴대폰마다 녹음 형식이 달라서 같은 샘플레이트의 모노로 맞춘다
+    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * EXPORT_RATE)), EXPORT_RATE);
+    const src = off.createBufferSource();
+    src.buffer = decoded;
+    src.connect(off.destination);
+    src.start();
+    return (await off.startRendering()).getChannelData(0);
+  } finally {
+    ctx.close();
+  }
+}
+
+function encodeWav(samples, rate) {
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+  const str = (o, s) => [...s].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  str(36, 'data'); view.setUint32(40, samples.length * 2, true);
+  samples.forEach((x, i) => view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x)) * 0x7fff, true));
+  return new Blob([view], { type: 'audio/wav' });
+}
+
+async function exportRecordings() {
+  const video = sh.video;
+  const n = video.segments.length;
+  if (sh.recs.size < n) return;
+  sh.exporting = true;
+  renderShadowPanel();
+  try {
+    const parts = [];
+    for (let k = 0; k < n; k++) parts.push(await toMono(sh.recs.get(k)));
+    const gap = Math.round(EXPORT_RATE * 0.5); // 문장 사이 0.5초 쉼
+    const out = new Float32Array(parts.reduce((sum, p) => sum + p.length, 0) + gap * (n - 1));
+    let pos = 0;
+    parts.forEach(p => { out.set(p, pos); pos += p.length + gap; });
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(encodeWav(out, EXPORT_RATE));
+    a.download = `${video.title} - 내 녹음.wav`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  } catch {
+    alert('녹음 파일을 만들지 못했어요. 다시 시도해 주세요.');
+  }
+  if (sh?.video !== video) return;
+  sh.exporting = false;
+  renderShadowPanel();
 }
 
 // 쉐도잉 화면을 떠날 때 영상과 녹음을 정리한다
@@ -837,8 +979,8 @@ function stopShadow() {
   if (!sh) return;
   clearShadowTimers();
   if (sh.recorder?.state === 'recording') sh.recorder.stop();
+  stopMine();
   try { sh.player?.destroy?.(); } catch {}
-  if (sh.recUrl) URL.revokeObjectURL(sh.recUrl);
   sh = null;
 }
 
@@ -902,8 +1044,10 @@ const actions = {
   shRate: el => setShadowOption('rate', Number(el.dataset.v)),
   shRepeat: el => setShadowOption('repeat', Number(el.dataset.v)),
   shAuto: () => setShadowOption('auto', !sh.opts.auto),
-  shRec: () => toggleRecord(),
-  shMine: () => playMine(),
+  shRec: el => toggleRecord(Number(el.dataset.i)),
+  shMine: el => playMine(Number(el.dataset.i)),
+  shRecClear: () => clearRecordings(),
+  shExport: () => exportRecordings(),
 };
 
 $app.addEventListener('click', e => {

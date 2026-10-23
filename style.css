@@ -226,11 +226,31 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 .lock .btn { flex: 0 0 90px; background: #8E24AA; }
 .sent-list { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; background: #fff; }
 .sent {
-  display: flex; align-items: center; gap: 14px;
-  width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid #F0E6DD;
-  background: #fff; text-align: left; scroll-margin-top: 280px;
+  display: flex; align-items: center; gap: 6px;
+  padding-right: 10px; border-bottom: 1px solid #F0E6DD;
+  background: #fff; scroll-margin-top: 280px;
 }
 .sent:last-child { border-bottom: 0; }
+.sent-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px;
+  padding: 14px 4px 14px 16px; border: 0; background: transparent; text-align: left;
+}
+.mini {
+  flex: none; width: 40px; height: 40px; border-radius: 50%;
+  border: 1.5px solid var(--line); background: #fff; font-size: 17px;
+}
+.mini.play { color: var(--secondary); border-color: #90CAF9; font-size: 15px; }
+.mini.mic.done { background: #F3E5F5; border-color: #CE93D8; }
+.mini.mic.rec-on { background: #D32F2F; border-color: #D32F2F; animation: pulse 1s infinite; }
+
+.rec-sum {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px; border-radius: 16px; background: #F3E5F5; border: 2px solid #CE93D8;
+}
+.rec-sum b { font-size: 17px; margin-right: 8px; }
+.rec-sum span { font-size: 14px; color: #6A1B9A; }
+.rec-sum .btn { background: #8E24AA; }
+.link { align-self: center; border: 0; background: none; color: var(--muted); font-size: 14px; text-decoration: underline; }
 .sent .num {
   flex: none; width: 32px; height: 32px; border-radius: 10px;
   display: inline-flex; align-items: center; justify-content: center;
