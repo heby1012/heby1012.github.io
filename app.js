@@ -696,6 +696,8 @@ function renderShadowPanel() {
     <div class="rec-sum">
       <div><b>🎤 내 녹음 ${sh.recs.size} / ${n}</b>
         <span>${sh.recs.size === n ? '모두 녹음했어요! 🎉' : `${n - sh.recs.size}문장 남았어요`}</span></div>
+      <button class="btn small block outline-white" data-act="shPlayAll" ${sh.recs.size && !recording ? '' : 'disabled'}>
+        ${sh.allPlaying ? '⏹ 그만 듣기' : `▶ 전체 듣기 (${sh.recs.size}문장)`}</button>
       <button class="btn small block" data-act="shExport" ${sh.recs.size === n && !sh.exporting && !recording ? '' : 'disabled'}>
         ${sh.exporting ? '파일 만드는 중…' : '⬇️ 전체 녹음 내려받기'}</button>
       ${sh.recs.size ? '<button class="link" data-act="shRecClear">녹음 모두 지우기</button>' : ''}
@@ -771,6 +773,7 @@ function playSentence(i, { loop = false } = {}) {
   sh.i = Math.max(0, Math.min(n - 1, i));
   sh.left = sh.opts.repeat;
   sh.loop = loop;
+  stopAllMine();
   playSegment();
 }
 
@@ -862,6 +865,7 @@ async function toggleRecord(k) {
     sh.recorder.stop();
     return;
   }
+  stopAllMine();
   pauseShadow();
   stopMine();
   let stream;
@@ -901,15 +905,57 @@ function stopMine() {
   sh.audio.pause();
   URL.revokeObjectURL(sh.audio.src);
   sh.audio = null;
+  sh.audioDone?.(); // 기다리던 '전체 듣기'를 다음으로 넘긴다
+}
+
+// 내 녹음 하나를 틀고, 끝나거나 멈추면 끝나는 Promise
+function playTake(k) {
+  stopMine();
+  const audio = new Audio(URL.createObjectURL(sh.recs.get(k)));
+  sh.audio = audio;
+  return new Promise(resolve => {
+    sh.audioDone = resolve;
+    audio.onended = audio.onerror = resolve;
+    audio.play().catch(resolve);
+  });
 }
 
 function playMine(k) {
-  const blob = sh?.recs.get(k);
-  if (!blob) return;
-  stopMine();
+  if (!sh?.recs.has(k)) return;
+  stopAllMine();
   pauseShadow();
-  sh.audio = new Audio(URL.createObjectURL(blob));
-  sh.audio.play();
+  playTake(k);
+}
+
+// 녹음한 문장을 1번부터 차례로 이어서 들려준다
+async function playAllMine() {
+  if (sh.allPlaying) {
+    stopAllMine();
+    return;
+  }
+  const order = [...sh.recs.keys()].sort((a, b) => a - b);
+  if (!order.length) return;
+  pauseShadow();
+  const run = sh.allPlaying = {};
+  for (const k of order) {
+    sh.i = k;
+    renderShadowPanel();
+    scrollToSentence();
+    await playTake(k);
+    if (sh?.allPlaying !== run) return; // 그만 듣기를 눌렀거나 화면을 나갔다
+    await new Promise(r => setTimeout(r, 400));
+    if (sh?.allPlaying !== run) return;
+  }
+  stopMine();
+  sh.allPlaying = null;
+  renderShadowPanel();
+}
+
+function stopAllMine() {
+  if (!sh?.allPlaying) return;
+  sh.allPlaying = null;
+  stopMine();
+  renderShadowPanel();
 }
 
 async function clearRecordings() {
@@ -1064,6 +1110,7 @@ const actions = {
   shMine: el => playMine(Number(el.dataset.i)),
   shRecClear: () => clearRecordings(),
   shExport: () => exportRecordings(),
+  shPlayAll: () => playAllMine(),
 };
 
 $app.addEventListener('click', e => {

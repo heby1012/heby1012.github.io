@@ -250,6 +250,7 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 .rec-sum b { font-size: 17px; margin-right: 8px; }
 .rec-sum span { font-size: 14px; color: #6A1B9A; }
 .rec-sum .btn { background: #8E24AA; }
+.rec-sum .btn.outline-white { background: #fff; color: #8E24AA; border: 2px solid #8E24AA; }
 .link { align-self: center; border: 0; background: none; color: var(--muted); font-size: 14px; text-decoration: underline; }
 .sent .num {
   flex: none; width: 32px; height: 32px; border-radius: 10px;
