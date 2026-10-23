@@ -1022,7 +1022,11 @@ async function exportRecordings() {
 
     const a = document.createElement('a');
     a.href = URL.createObjectURL(encodeWav(out, EXPORT_RATE));
-    a.download = `${video.title} - 내 녹음.wav`;
+    // 저장할 때마다 이름이 겹치지 않게 날짜와 시각을 붙인다 (예: … 2026-10-24 14-30.wav)
+    const now = new Date();
+    const pad = x => String(x).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}-${pad(now.getMinutes())}`;
+    a.download = `${video.title} - 내 녹음 ${stamp}.wav`;
     document.body.appendChild(a);
     a.click();
     a.remove();
