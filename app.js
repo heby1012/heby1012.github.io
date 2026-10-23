@@ -1,5 +1,8 @@
 'use strict';
 
+// index.html 의 <script data-version> 값. 휴대폰이 최신 버전인지 설정 화면에서 확인할 수 있다
+const APP_VERSION = document.querySelector('script[data-version]')?.dataset.version || '';
+
 // 기본 단어는 같은 폴더의 words.csv 에서 읽는다 (구글 시트를 연결하면 시트 단어를 대신 쓴다)
 const BUILTIN_CSV = 'words.csv';
 
@@ -519,6 +522,7 @@ function renderSettings() {
     <div class="info">지금 단어 ${state.words.length}개 · 단원 ${units().length}개</div>
     <hr>
     <button class="btn outline block" data-act="reset">기본 단어로 되돌리기</button>
+    <div class="info" style="text-align:center">버전 ${esc(APP_VERSION)}</div>
   </main>`;
 }
 
@@ -1085,5 +1089,15 @@ route();
   });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // 새 버전이 올라오면 바로 받아서, 새 서비스워커가 자리를 잡는 순간 한 번 새로고침한다
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded || sh?.recorder) return; // 처음 설치일 때와 녹음 중에는 새로고침하지 않는다
+    reloaded = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+    .then(reg => reg.update())
+    .catch(() => {});
 }
