@@ -130,7 +130,7 @@ const state = {
 const LABEL = { all: '단어', starred: '별표 단어', wrong: '오답 노트' };
 
 async function loadBuiltin() {
-  const res = await fetch(BUILTIN_CSV, { cache: 'no-cache' });
+  const res = await fetch(`${BUILTIN_CSV}?t=${Date.now()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`단어 파일을 불러오지 못했어요. (오류 ${res.status})`);
   const words = parseWords(await res.text());
   state.words = words;
@@ -564,7 +564,8 @@ const fmtTime = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).p
 
 async function loadShadowVideos() {
   if (!shadowVideos) {
-    const res = await fetch('shadowing.json', { cache: 'no-cache' });
+    // GitHub Pages 가 최대 10분 캐시하므로 주소를 바꿔서 항상 새 파일을 받는다
+    const res = await fetch(`shadowing.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`영상 목록을 불러오지 못했어요. (오류 ${res.status})`);
     shadowVideos = await res.json();
   }
@@ -619,6 +620,10 @@ async function startShadow(id) {
     video, i: 0, player: null, playing: false, left: 0, timer: null, wait: null,
     opts: { rate: 1, repeat: 1, auto: true, ...store.get('shadowOpts', {}) },
     recorder: null, recUrl: null,
+    loop: false, // 문장 목록에서 누른 문장을 계속 반복하는 중
+    editing: false,
+    // 문장 글자는 책 본문이라 공개 파일에 넣지 않고, 이 기기에만 저장한다
+    texts: store.get('shadowText.' + video.id, []),
   };
   $app.innerHTML = header(video.title) + `<main class="shadow">
     <div class="video-box"><div id="yt"></div></div>
@@ -645,10 +650,24 @@ function renderShadowPanel() {
   const [s, e] = video.segments[i];
   const recording = sh.recorder?.state === 'recording';
   const opt = (act, v, label, on) => `<button class="opt ${on ? 'on' : ''}" data-act="${act}" data-v="${v}">${label}</button>`;
+  const text = k => sh.texts[k] || '';
+
+  if (sh.editing) {
+    panel.innerHTML = `
+      <div class="label">문장 글자 넣기</div>
+      <div class="info">한 줄에 한 문장씩 붙여 넣어 주세요. (${n}줄) 이 휴대폰에만 저장돼요.</div>
+      <label class="field"><textarea id="sh-text" rows="12" placeholder="The Dragon Tree&#10;The children meet a nasty dragon.&#10;…">${esc(sh.texts.join('\n'))}</textarea></label>
+      <div class="row">
+        <button class="btn outline" data-act="shEditCancel">취소</button>
+        <button class="btn" data-act="shEditSave">저장</button>
+      </div>`;
+    return;
+  }
 
   panel.innerHTML = `
     <div class="progress-text">문장 ${i + 1} / ${n} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
     <div class="progress"><div style="width:${((i + 1) / n) * 100}%"></div></div>
+    ${text(i) ? `<div class="sh-now">${esc(text(i))}</div>` : ''}
     <div class="sh-controls">
       <button class="round" data-act="shPrev" ${i === 0 ? 'disabled' : ''} aria-label="이전 문장">⏮</button>
       <button class="round" data-act="shReplay" aria-label="다시 듣기">🔁</button>
@@ -666,10 +685,49 @@ function renderShadowPanel() {
       <span>반복</span>${[1, 2, 3].map(v => opt('shRepeat', v, v + '번', opts.repeat === v)).join('')}
       <button class="opt ${opts.auto ? 'on' : ''}" data-act="shAuto">자동 넘김</button>
     </div>
-    <div class="label">문장 고르기</div>
-    <div class="seg-grid">${video.segments.map((_, k) =>
-      `<button class="seg ${k === i ? 'on' : ''}" data-act="shGo" data-i="${k}">${k + 1}</button>`).join('')}</div>
+    <div class="sent-head">
+      <span class="label">${n} 문장</span>
+      <button class="opt" data-act="shEdit">✏️ 문장 글자 ${sh.texts.length ? '고치기' : '넣기'}</button>
+    </div>
+    <div class="info">문장을 누르면 그 문장만 계속 반복해요. 한 번 더 누르면 멈춰요.</div>
+    <div class="sent-list">${video.segments.map(([a], k) => {
+      const looping = sh.loop && sh.playing && k === i;
+      return `<button class="sent ${k === i ? 'on' : ''}" data-act="shLoop" data-i="${k}">
+        <span class="num">${looping ? '🔁' : k + 1}</span>
+        <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
+      </button>`;
+    }).join('')}</div>
   `;
+}
+
+// 자동으로 넘어간 문장이 목록에서 보이도록 스크롤한다
+function scrollToSentence() {
+  document.querySelector('.sent.on')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function toggleLoop(k) {
+  if (sh.loop && sh.playing && sh.i === k) {
+    pauseShadow();
+    return;
+  }
+  playSentence(k, { loop: true });
+}
+
+function editShadowText(save) {
+  if (save) {
+    const lines = document.getElementById('sh-text').value.split('\n').map(l => l.trim()).filter(Boolean);
+    sh.texts = lines;
+    store.set('shadowText.' + sh.video.id, lines);
+    const n = sh.video.segments.length;
+    if (lines.length && lines.length !== n) alert(`문장이 ${lines.length}줄이에요. 영상은 ${n}문장이라 순서가 어긋날 수 있어요.`);
+  } else {
+    if (!sh.editing) pauseShadow();
+    sh.editing = !sh.editing;
+    renderShadowPanel();
+    return;
+  }
+  sh.editing = false;
+  renderShadowPanel();
 }
 
 function clearShadowTimers() {
@@ -678,11 +736,12 @@ function clearShadowTimers() {
 }
 
 // i 번째 문장을 처음부터 (반복 횟수만큼) 들려준다
-function playSentence(i) {
+function playSentence(i, { loop = false } = {}) {
   if (!sh) return;
   const n = sh.video.segments.length;
   sh.i = Math.max(0, Math.min(n - 1, i));
   sh.left = sh.opts.repeat;
+  sh.loop = loop;
   playSegment();
 }
 
@@ -703,10 +762,10 @@ function playSegment() {
     sh.left--;
     // 문장을 들은 만큼 따라 말할 시간을 준다
     const gap = Math.max(1500, ((e - s) / sh.opts.rate) * 1000 + 500);
-    if (sh.left > 0) {
+    if (sh.loop || sh.left > 0) {
       sh.wait = setTimeout(playSegment, gap);
     } else if (sh.opts.auto && sh.i < sh.video.segments.length - 1) {
-      sh.wait = setTimeout(() => playSentence(sh.i + 1), gap);
+      sh.wait = setTimeout(() => { playSentence(sh.i + 1); scrollToSentence(); }, gap);
     } else {
       sh.playing = false;
       renderShadowPanel();
@@ -830,7 +889,10 @@ const actions = {
   shReplay: () => playSentence(sh.i),
   shPrev: () => playSentence(sh.i - 1),
   shNext: () => playSentence(sh.i + 1),
-  shGo: el => playSentence(Number(el.dataset.i)),
+  shLoop: el => toggleLoop(Number(el.dataset.i)),
+  shEdit: () => editShadowText(false),
+  shEditCancel: () => editShadowText(false),
+  shEditSave: () => editShadowText(true),
   shRate: el => setShadowOption('rate', Number(el.dataset.v)),
   shRepeat: el => setShadowOption('repeat', Number(el.dataset.v)),
   shAuto: () => setShadowOption('auto', !sh.opts.auto),

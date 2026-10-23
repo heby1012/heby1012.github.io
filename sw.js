@@ -1,5 +1,5 @@
 // 인터넷이 되면 항상 최신 파일을 받고, 안 되면 저장해 둔 파일로 연다.
-const CACHE = 'wordbook-v3';
+const CACHE = 'wordbook-v4';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'words.csv', 'shadowing.json','manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -16,13 +16,15 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   // 구글 시트 요청은 건드리지 않는다
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  // ?t=… 같은 꼬리는 떼고 저장해서 같은 파일이 여러 번 쌓이지 않게 한다
+  const key = url.origin + url.pathname;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' }) // 브라우저 캐시 대신 서버에 새 버전이 있는지 확인한다
       .then(res => {
         const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
+        if (res.ok) caches.open(CACHE).then(c => c.put(key, copy));
         return res;
       })
-      .catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))),
+      .catch(() => caches.match(key).then(r => r || caches.match('index.html'))),
   );
 });
