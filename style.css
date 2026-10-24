@@ -243,6 +243,37 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 .mini.mic.done { background: #F3E5F5; border-color: #CE93D8; }
 .mini.mic.rec-on { background: #D32F2F; border-color: #D32F2F; animation: pulse 1s infinite; }
 
+.rec-box {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px; border-radius: 18px; background: #fff; border: 2px solid #CE93D8;
+}
+.rec-box .heard { font-size: 16px; }
+.rec-box .heard b { color: #6A1B9A; }
+.rec-box .heard small { display: block; margin-top: 2px; color: var(--muted); font-size: 14px; }
+.rec-big { width: 100%; min-height: 64px; font-size: 20px; background: #8E24AA; }
+.rec-big.rec-on { background: #D32F2F; animation: pulse 1s infinite; }
+
+.clip-list { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; background: #fff; }
+.clip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 10px 10px 14px; border-bottom: 1px solid #F0E6DD;
+}
+.clip:last-child { border-bottom: 0; }
+.clip .num {
+  flex: none; width: 28px; height: 28px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #F3E5F5; color: #6A1B9A; font-size: 14px; font-weight: 700;
+}
+.clip .txt { flex: 1; min-width: 0; }
+.clip .txt b { display: block; font-size: 16px; }
+.clip .txt small { color: var(--muted); font-size: 13px; }
+.clip.on { background: #FFF3E0; box-shadow: inset 4px 0 0 var(--primary); }
+
+.seg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; }
+.seg { height: 44px; border-radius: 10px; border: 1.5px solid var(--line); background: #fff; font-size: 16px; }
+.seg.title { font-size: 13px; color: var(--muted); }
+.seg.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 800; }
+
 .rec-sum {
   display: flex; flex-direction: column; gap: 8px;
   padding: 14px 16px; border-radius: 16px; background: #F3E5F5; border: 2px solid #CE93D8;

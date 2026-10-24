@@ -296,7 +296,7 @@ function renderHome() {
     ${menu('📋', '단어 목록', '단어를 한눈에 보기', '#A5D6A7', '#/list/all')}
     ${menu('⭐', '별표 단어', `${wordsFor('starred').length}개`, '#FFF59D', '#/list/starred')}
     ${menu('❌', '오답 노트', `틀린 단어 ${wordsFor('wrong').length}개`, '#EF9A9A', '#/list/wrong')}
-    ${menu('🎧', 'Shadowing', '영상 보며 문장 따라 말하기', '#CE93D8', '#/shadow')}
+    ${menu('🎧', '따라 말하기', '영상 듣고 따라 말해서 녹음하기', '#CE93D8', '#/shadow')}
   </main>`;
 }
 
@@ -558,7 +558,7 @@ async function resetWords() {
   refreshView();
 }
 
-// ───────── Shadowing ─────────
+// ───────── 따라 말하기 (Shadowing) ─────────
 // shadowing.json 에는 영상 id 와 문장별 [시작, 끝] 초만 들어 있다. 문장 글자는 영상 화면과 YouTube 자막으로 본다.
 let shadowVideos = null;
 let sh = null; // 지금 열려 있는 쉐도잉 화면의 상태
@@ -589,17 +589,17 @@ function loadYouTubeApi() {
 }
 
 async function renderShadowList() {
-  $app.innerHTML = header('Shadowing') + empty('불러오는 중…');
+  $app.innerHTML = header('따라 말하기') + empty('불러오는 중…');
   let videos;
   try {
     videos = await loadShadowVideos();
   } catch (e) {
-    $app.innerHTML = header('Shadowing') + empty(e.message);
+    $app.innerHTML = header('따라 말하기') + empty(e.message);
     return;
   }
   if (location.hash !== '#/shadow') return; // 그 사이에 다른 화면으로 나갔다
-  $app.innerHTML = header('Shadowing') + `<main>
-    <div class="info">영상을 한 문장씩 듣고 바로 따라 말해 보세요.</div>
+  $app.innerHTML = header('따라 말하기') + `<main>
+    <div class="info">영상을 듣고 따라 말하며 녹음해 보세요.</div>
     ${videos.map(v => `
       <button class="video-card" data-act="nav" data-href="#/shadow/${esc(v.id)}">
         <img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy">
@@ -613,31 +613,30 @@ async function startShadow(id) {
   try {
     video = (await loadShadowVideos()).find(v => v.id === id);
   } catch (e) {
-    $app.innerHTML = header('Shadowing') + empty(e.message);
+    $app.innerHTML = header('따라 말하기') + empty(e.message);
     return;
   }
   if (!video) {
-    $app.innerHTML = header('Shadowing') + empty('영상을 찾지 못했어요.');
+    $app.innerHTML = header('따라 말하기') + empty('영상을 찾지 못했어요.');
     return;
   }
   sh = {
-    video, i: 0, player: null, playing: false, left: 0, timer: null, wait: null,
+    video, i: video.titles || 0, player: null, playing: false, left: 0, timer: null, wait: null,
     opts: { rate: 1, repeat: 1, auto: true, ...store.get('shadowOpts', {}) },
-    recorder: null, recIndex: null, // 지금 녹음 중인 문장 번호
-    recs: new Map(), // 문장 번호 → 내 녹음(Blob)
-    audio: null, exporting: false,
-    loop: false, // 문장 목록에서 누른 문장을 계속 반복하는 중
-    texts: [],
-    lockMsg: '',
+    loop: false, // 번호를 눌러 그 문장을 계속 반복하는 중
+    // 자유 녹음: 길이는 아이가 정하고, 녹음마다 '방금 들은 영상 구간'을 함께 저장한다
+    clips: [], // { key, blob, start, end, len, created }
+    recorder: null, recStarting: false, recSince: 0, tick: null,
+    heardFrom: null, // 지난 녹음 뒤 처음 듣기 시작한 영상 시간 = 들은 구간의 시작
+    lastRange: null, // 바로 앞 녹음의 구간 (다시 듣지 않고 또 녹음하면 같은 구간으로 본다)
+    audio: null, audioDone: null, allPlaying: null, playingClip: null, exporting: false,
   };
   $app.innerHTML = header(video.title) + `<main class="shadow">
     <div class="video-box"><div id="yt"></div></div>
     <div id="sh-panel"></div>
   </main>`;
   renderShadowPanel();
-  loadRecordings(video);
-  // 이 기기에서 전에 맞힌 비밀번호가 있으면 문장 글자를 바로 연다
-  if (video.enc && store.get('shadowPass', '')) unlockShadow(store.get('shadowPass', ''), { silent: true });
+  loadClips(video);
 
   const YT = await loadYouTubeApi();
   if (!sh || sh.video !== video) return; // 그 사이에 다른 화면으로 나갔다
@@ -646,9 +645,39 @@ async function startShadow(id) {
     playerVars: { playsinline: 1, rel: 0, cc_load_policy: 1, cc_lang_pref: 'en', hl: 'ko' },
     events: {
       onReady: () => sh?.player?.setPlaybackRate(sh.opts.rate),
+      // 영상 화면의 재생 버튼으로 들어도 '들은 구간'이 기록되도록 재생 시작을 지켜본다
+      onStateChange: e => { if (e.data === 1) noteListening(); },
     },
   });
 }
+
+function noteListening() {
+  if (sh?.player?.getCurrentTime && sh.heardFrom == null) sh.heardFrom = sh.player.getCurrentTime();
+}
+
+// 영상 구간 [a, b] 와 겹치는 문장 번호 (제목 빼고)
+function sentencesIn(a, b) {
+  const T = sh.video.titles || 0;
+  const hit = [];
+  sh.video.segments.forEach(([s, e], k) => {
+    if (k >= T && e > a + 0.2 && s < b - 0.2) hit.push(k - T + 1);
+  });
+  if (!hit.length) return '';
+  return hit.length === 1 ? `문장 ${hit[0]}` : `문장 ${hit[0]}~${hit[hit.length - 1]}`;
+}
+
+const rangeText = ([a, b]) => `${fmtTime(a)}~${fmtTime(b)}`;
+
+// 지금 녹음하면 붙을 '들은 구간'
+function pendingRange() {
+  const now = sh.player?.getCurrentTime?.() ?? 0;
+  if (sh.heardFrom != null && sh.heardFrom < now - 0.3) return [sh.heardFrom, now];
+  if (sh.lastRange) return sh.lastRange;
+  const [s, e] = sh.video.segments[sh.i]; // 아직 아무것도 안 들었으면 지금 고른 문장
+  return [s, e];
+}
+
+const sortedClips = () => [...sh.clips].sort((a, b) => a.start - b.start || a.created - b.created);
 
 function renderShadowPanel() {
   const panel = document.getElementById('sh-panel');
@@ -658,31 +687,23 @@ function renderShadowPanel() {
   const [s, e] = video.segments[i];
   const recording = sh.recorder?.state === 'recording';
   const opt = (act, v, label, on) => `<button class="opt ${on ? 'on' : ''}" data-act="${act}" data-v="${v}">${label}</button>`;
-  const text = k => sh.texts[k] || '';
-  // 앞쪽 제목·소개 구간은 숙제가 아니라서 번호를 매기지 않고 녹음도 받지 않는다
+  // 앞쪽 제목·소개 구간은 숙제가 아니라서 번호를 매기지 않는다
   const T = video.titles || 0;
   const isTitle = k => k < T;
-  const no = k => k - T + 1; // 화면에 보이는 문장 번호
+  const no = k => k - T + 1;
   const total = n - T;
-  const done = myTakes().length;
-
-  const locked = video.enc && !sh.texts.length;
-  const typed = document.getElementById('sh-pass')?.value || ''; // 재생 중 다시 그려도 입력 중인 비밀번호를 지키기
+  const clips = sortedClips();
+  const range = pendingRange();
+  const busy = recording || sh.recStarting;
 
   panel.innerHTML = `
     <div class="progress-text">${isTitle(i) ? '제목' : `문장 ${no(i)} / ${total}`} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
     <div class="progress"><div style="width:${isTitle(i) ? 0 : (no(i) / total) * 100}%"></div></div>
-    ${text(i) ? `<div class="sh-now">${esc(text(i))}</div>` : ''}
     <div class="sh-controls">
       <button class="round" data-act="shPrev" ${i === 0 ? 'disabled' : ''} aria-label="이전 문장">⏮</button>
       <button class="round" data-act="shReplay" aria-label="다시 듣기">🔁</button>
       <button class="round big" data-act="shPlay" aria-label="${sh.playing ? '멈추기' : '듣기'}">${sh.playing ? '⏸' : '▶'}</button>
       <button class="round" data-act="shNext" ${i === n - 1 ? 'disabled' : ''} aria-label="다음 문장">⏭</button>
-    </div>
-    <div class="rec-row">
-      <button class="btn ${recording && sh.recIndex === i ? 'rec-on' : ''}" data-act="shRec" data-i="${i}" ${isTitle(i) && !recording ? 'disabled' : ''}>${
-        sh.recStarting === i ? '⏳ 준비 중…' : recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : isTitle(i) ? '🎤 제목은 녹음 안 해요' : `🎤 ${no(i)}번 녹음`}</button>
-      <button class="btn outline" data-act="shMine" data-i="${i}" ${sh.recs.has(i) && !isTitle(i) && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
     </div>
     <div class="opts">
       <span>속도</span>${[0.5, 0.75, 1].map(v => opt('shRate', v, v + 'x', opts.rate === v)).join('')}
@@ -691,53 +712,39 @@ function renderShadowPanel() {
       <span>반복</span>${[1, 2, 3].map(v => opt('shRepeat', v, v + '번', opts.repeat === v)).join('')}
       <button class="opt ${opts.auto ? 'on' : ''}" data-act="shAuto">자동 넘김</button>
     </div>
-    <div class="label">${total} 문장</div>
-    ${locked ? `<form class="lock" data-form="unlock">
-      <b>🔒 비밀번호를 넣으면 문장 글자가 보여요</b>
-      <div class="row">
-        <input id="sh-pass" type="password" inputmode="numeric" autocomplete="off" placeholder="비밀번호" value="${esc(typed)}">
-        <button class="btn small" type="submit">확인</button>
-      </div>
-      ${sh.lockMsg ? `<div class="msg err">${esc(sh.lockMsg)}</div>` : ''}
-    </form>` : ''}
-    <div class="rec-sum">
-      <div><b>🎤 내 녹음 ${done} / ${total}</b>
-        <span>${done === total ? '모두 녹음했어요! 🎉' : '숙제에 있는 문장만 녹음해도 돼요'}</span></div>
-      <button class="btn small block outline-white" data-act="shPlayAll" ${done && !recording ? '' : 'disabled'}>
-        ${sh.allPlaying ? '⏹ 그만 듣기' : `▶ 전체 듣기 (${done}문장)`}</button>
-      <button class="btn small block" data-act="shExport" ${done && !sh.exporting && !recording ? '' : 'disabled'}>
-        ${sh.exporting ? '파일 만드는 중…' : `⬇️ 녹음 내려받기 (${done}문장)`}</button>
-      ${sh.recs.size ? '<button class="link" data-act="shRecClear">녹음 모두 지우기</button>' : ''}
+
+    <div class="rec-box">
+      <div class="heard">🎧 ${recording ? '녹음 중인 구간' : '들은 구간'}: <b>${rangeText(sh.recRange || range)}</b>
+        <small>${sentencesIn(...(sh.recRange || range))}</small></div>
+      <button class="btn rec-big ${recording ? 'rec-on' : ''}" data-act="shRec" ${sh.recStarting ? 'disabled' : ''}>
+        ${sh.recStarting ? '⏳ 준비 중…' : recording ? `■ 녹음 끝내기 ${fmtTime((Date.now() - sh.recSince) / 1000)}` : '● 녹음 시작'}</button>
+      <div class="info">듣고 싶은 만큼 듣고 멈춘 다음, 녹음을 눌러 따라 말해요.</div>
     </div>
-    <div class="info">문장을 누르면 그 문장만 계속 반복해요. 🎤를 누르면 녹음, 한 번 더 누르면 끝나요.</div>
-    <div class="sent-list">${video.segments.map(([a], k) => {
+
+    <div class="rec-sum">
+      <div><b>🎤 내 녹음 ${clips.length}개</b><span>영상 순서대로 이어져요</span></div>
+      <button class="btn small block outline-white" data-act="shPlayAll" ${clips.length && !busy ? '' : 'disabled'}>
+        ${sh.allPlaying ? '⏹ 그만 듣기' : '▶ 전체 듣기'}</button>
+      <button class="btn small block" data-act="shExport" ${clips.length && !sh.exporting && !busy ? '' : 'disabled'}>
+        ${sh.exporting ? '파일 만드는 중…' : '⬇️ 합쳐서 내려받기'}</button>
+      ${clips.length ? '<button class="link" data-act="shRecClear">녹음 모두 지우기</button>' : ''}
+    </div>
+    ${clips.length ? `<div class="clip-list">${clips.map((c, k) => `
+      <div class="clip ${sh.playingClip === c.key ? 'on' : ''}">
+        <span class="num">${k + 1}</span>
+        <span class="txt"><b>${rangeText([c.start, c.end])}</b><small>${sentencesIn(c.start, c.end)} · ${Math.max(1, Math.round(c.len))}초</small></span>
+        <button class="mini play" data-act="clipPlay" data-key="${esc(c.key)}" aria-label="내 녹음 듣기">▶</button>
+        <button class="mini" data-act="clipScene" data-key="${esc(c.key)}" aria-label="그 장면 다시 보기">🎬</button>
+        <button class="mini" data-act="clipDel" data-key="${esc(c.key)}" aria-label="지우기">🗑</button>
+      </div>`).join('')}</div>` : ''}
+
+    <div class="label">번호로 바로 가기</div>
+    <div class="info">번호를 누르면 그 문장만 계속 반복해요. 한 번 더 누르면 멈춰요.</div>
+    <div class="seg-grid">${video.segments.map((_, k) => {
       const looping = sh.loop && sh.playing && k === i;
-      const recNow = recording && sh.recIndex === k;
-      const starting = sh.recStarting === k;
-      if (isTitle(k)) {
-        return `<div class="sent title ${k === i ? 'on' : ''}">
-          <button class="sent-main" data-act="shLoop" data-i="${k}">
-            <span class="num">${looping ? '🔁' : '제목'}</span>
-            <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
-          </button>
-        </div>`;
-      }
-      return `<div class="sent ${k === i ? 'on' : ''}">
-        <button class="sent-main" data-act="shLoop" data-i="${k}">
-          <span class="num">${looping ? '🔁' : no(k)}</span>
-          <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
-        </button>
-        ${sh.recs.has(k) && !recNow && !starting ? `<button class="mini play" data-act="shMine" data-i="${k}" aria-label="내 녹음 듣기">▶</button>` : ''}
-        <button class="mini mic ${recNow || starting ? 'rec-on' : sh.recs.has(k) ? 'done' : ''}" data-act="shRec" data-i="${k}"
-          aria-label="${recNow ? '녹음 끝내기' : '녹음하기'}">${starting ? '⏳' : recNow ? '⏹' : '🎤'}</button>
-      </div>`;
+      return `<button class="seg ${k === i ? 'on' : ''} ${isTitle(k) ? 'title' : ''}" data-act="shLoop" data-i="${k}">${looping ? '🔁' : isTitle(k) ? '제목' : no(k)}</button>`;
     }).join('')}</div>
   `;
-}
-
-// 자동으로 넘어간 문장이 목록에서 보이도록 스크롤한다
-function scrollToSentence() {
-  document.querySelector('.sent.on')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function toggleLoop(k) {
@@ -748,35 +755,6 @@ function toggleLoop(k) {
   playSentence(k, { loop: true });
 }
 
-// 문장 글자는 책 본문이라 비밀번호로 암호화해서 shadowing.json 에 넣어 두었다 (tools/encrypt-shadow.mjs)
-const b64bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-
-async function decryptTexts(enc, pass) {
-  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: b64bytes(enc.salt), iterations: 200000, hash: 'SHA-256' },
-    base, { name: 'AES-GCM', length: 256 }, false, ['decrypt'],
-  );
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64bytes(enc.iv) }, key, b64bytes(enc.data));
-  return JSON.parse(new TextDecoder().decode(plain));
-}
-
-async function unlockShadow(pass, { silent = false } = {}) {
-  const video = sh.video;
-  try {
-    const texts = await decryptTexts(video.enc, pass.trim());
-    if (sh?.video !== video) return;
-    sh.texts = texts;
-    sh.lockMsg = '';
-    store.set('shadowPass', pass.trim()); // 다음부터는 묻지 않는다
-  } catch {
-    if (sh?.video !== video) return;
-    if (silent) store.set('shadowPass', ''); // 비밀번호가 바뀌었으면 다시 묻는다
-    else sh.lockMsg = '비밀번호가 맞지 않아요.';
-  }
-  renderShadowPanel();
-}
-
 function clearShadowTimers() {
   clearInterval(sh.timer);
   clearTimeout(sh.wait);
@@ -784,12 +762,13 @@ function clearShadowTimers() {
 
 // i 번째 문장을 처음부터 (반복 횟수만큼) 들려준다
 function playSentence(i, { loop = false } = {}) {
-  if (!sh) return;
+  if (!sh || sh.recorder) return;
   const n = sh.video.segments.length;
   sh.i = Math.max(0, Math.min(n - 1, i));
   sh.left = sh.opts.repeat;
   sh.loop = loop;
   stopAllMine();
+  stopMine();
   playSegment();
 }
 
@@ -813,11 +792,34 @@ function playSegment() {
     if (sh.loop || sh.left > 0) {
       sh.wait = setTimeout(playSegment, gap);
     } else if (sh.opts.auto && sh.i < sh.video.segments.length - 1) {
-      sh.wait = setTimeout(() => { playSentence(sh.i + 1); scrollToSentence(); }, gap);
+      sh.wait = setTimeout(() => playSentence(sh.i + 1), gap);
     } else {
       sh.playing = false;
       renderShadowPanel();
     }
+  }, 50);
+}
+
+// 녹음에 붙은 영상 구간을 한 번 다시 들려준다
+function playRange(a, b) {
+  if (!sh || sh.recorder) return;
+  stopAllMine();
+  stopMine();
+  clearShadowTimers();
+  const p = sh.player;
+  if (!p?.seekTo) return;
+  p.setPlaybackRate(sh.opts.rate);
+  p.seekTo(a, true);
+  p.playVideo();
+  sh.playing = true;
+  sh.loop = false;
+  renderShadowPanel();
+  sh.timer = setInterval(() => {
+    if (p.getCurrentTime() < b - 0.05) return;
+    p.pauseVideo();
+    clearInterval(sh.timer);
+    sh.playing = false;
+    renderShadowPanel();
   }, 50);
 }
 
@@ -835,7 +837,7 @@ function setShadowOption(key, value) {
   renderShadowPanel();
 }
 
-// ── 내 녹음: 문장마다 휴대폰(IndexedDB)에 저장해서 화면을 닫았다 열어도 남는다 ──
+// ── 내 녹음: 휴대폰(IndexedDB)에 저장해서 화면을 닫았다 열어도 남는다 ──
 const recStore = (() => {
   let dbp = null;
   const open = () => dbp || (dbp = new Promise((resolve, reject) => {
@@ -855,80 +857,88 @@ const recStore = (() => {
   };
   return {
     get: key => run('readonly', s => s.get(key)),
-    put: (key, blob) => run('readwrite', s => s.put(blob, key)),
+    put: (key, value) => run('readwrite', s => s.put(value, key)),
     del: key => run('readwrite', s => s.delete(key)),
     keys: () => run('readonly', s => s.getAllKeys()),
   };
 })();
 
-const recKey = (id, k) => `${id}:${k}`;
-
-// 숙제용 내 녹음 문장 번호들 (제목 구간은 빼고, 번호 순서대로)
-function myTakes() {
-  const T = sh.video.titles || 0;
-  return [...sh.recs.keys()].filter(k => k >= T).sort((a, b) => a - b);
-}
-
-async function loadRecordings(video) {
+async function loadClips(video) {
   try {
-    const keys = (await recStore.keys()).filter(key => String(key).startsWith(video.id + ':'));
+    const keys = (await recStore.keys()).filter(key => String(key).startsWith(`${video.id}:clip:`));
     for (const key of keys) {
-      const blob = await recStore.get(key);
+      const clip = await recStore.get(key);
       if (sh?.video !== video) return;
-      if (blob) sh.recs.set(Number(String(key).split(':')[1]), blob);
+      if (clip?.blob) sh.clips.push({ ...clip, key });
     }
     renderShadowPanel();
   } catch {} // 사생활 보호 모드 등에서는 저장 없이 이 화면에서만 쓴다
 }
 
 // 한 번 누르면 녹음 시작, 한 번 더 누르면 끝
-async function toggleRecord(k) {
-  if (sh.recStarting != null) return; // 마이크를 켜는 중에 또 누르면 녹음이 두 개 생기므로 무시한다
+async function toggleRecord() {
+  if (sh.recStarting) return; // 마이크를 켜는 중에 또 누르면 녹음이 두 개 생기므로 무시한다
   if (sh.recorder?.state === 'recording') {
     sh.recorder.stop();
     return;
   }
-  if (k < (sh.video.titles || 0)) return; // 제목 구간은 녹음하지 않는다
   stopAllMine();
   stopMine();
-  sh.recStarting = k;
-  sh.i = k;
-  pauseShadow(); // 화면에 '준비 중'이 바로 보이도록 다시 그린다
+  clearShadowTimers();
+  sh.player?.pauseVideo?.();
+  sh.playing = false;
+  sh.recRange = pendingRange();
+  sh.recStarting = true;
+  renderShadowPanel(); // '준비 중'이 바로 보이게
   const video = sh.video;
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
-    if (sh?.video === video) { sh.recStarting = null; renderShadowPanel(); }
+    if (sh?.video === video) { sh.recStarting = false; sh.recRange = null; renderShadowPanel(); }
     alert('마이크를 쓸 수 없어요. 크롬에서 열고 마이크 사용을 허용해 주세요.');
     return;
   }
   if (sh?.video !== video) { stream.getTracks().forEach(t => t.stop()); return; }
-  sh.recStarting = null;
+  sh.recStarting = false;
+  const range = sh.recRange;
   const chunks = [];
   const rec = new MediaRecorder(stream);
   rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   rec.onstop = () => {
     stream.getTracks().forEach(t => t.stop());
     const blob = new Blob(chunks, { type: rec.mimeType });
-    const empty = blob.size === 0;
-    if (!empty) recStore.put(recKey(video.id, k), blob).catch(() => {});
+    const created = Date.now();
+    const clip = { blob, start: range[0], end: range[1], len: (created - started) / 1000, created };
+    const key = `${video.id}:clip:${created}`;
+    if (blob.size) recStore.put(key, clip).catch(() => {});
     if (sh?.video !== video) return;
+    clearInterval(sh.tick);
     if (sh.recorder === rec) {
       sh.recorder = null;
-      sh.recIndex = null;
+      sh.recRange = null;
     }
-    if (empty) alert('녹음이 안 됐어요. 조금 더 길게 말하고 다시 눌러 주세요.');
-    else sh.recs.set(k, blob);
+    if (!blob.size) {
+      alert('녹음이 안 됐어요. 조금 더 길게 말하고 다시 눌러 주세요.');
+    } else {
+      sh.clips.push({ ...clip, key });
+      sh.lastRange = range;
+      sh.heardFrom = null; // 다음 녹음은 이제부터 듣는 구간으로 잡는다
+    }
     renderShadowPanel();
   };
+  const started = Date.now();
   sh.recorder = rec;
-  sh.recIndex = k;
-  sh.i = k;
+  sh.recSince = started;
   rec.start(250); // 0.25초마다 조각을 받아서 짧게 녹음해도 소리가 남게 한다
   renderShadowPanel();
-  // 깜빡하고 안 끄면 30초 뒤 저절로 멈춘다
-  setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 30000);
+  // 녹음 시간 표시만 바꾼다 (화면 전체를 다시 그리지 않음)
+  sh.tick = setInterval(() => {
+    const b = document.querySelector('[data-act="shRec"]');
+    if (b && sh?.recorder) b.textContent = `■ 녹음 끝내기 ${fmtTime((Date.now() - started) / 1000)}`;
+  }, 500);
+  // 깜빡하고 안 끄면 3분 뒤 저절로 멈춘다
+  setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 180000);
 }
 
 function stopMine() {
@@ -940,9 +950,9 @@ function stopMine() {
 }
 
 // 내 녹음 하나를 틀고, 끝나거나 멈추면 끝나는 Promise
-function playTake(k) {
+function playTake(clip) {
   stopMine();
-  const audio = new Audio(URL.createObjectURL(sh.recs.get(k)));
+  const audio = new Audio(URL.createObjectURL(clip.blob));
   sh.audio = audio;
   return new Promise(resolve => {
     sh.audioDone = resolve;
@@ -951,40 +961,69 @@ function playTake(k) {
   });
 }
 
-function playMine(k) {
-  if (!sh?.recs.has(k)) return;
+const findClip = key => sh.clips.find(c => c.key === key);
+
+async function playClip(key) {
+  const clip = findClip(key);
+  if (!clip || sh.recorder) return;
   stopAllMine();
   pauseShadow();
-  playTake(k);
+  sh.playingClip = key;
+  renderShadowPanel();
+  await playTake(clip);
+  if (sh?.playingClip === key && !sh.allPlaying) {
+    sh.playingClip = null;
+    renderShadowPanel();
+  }
 }
 
-// 녹음한 문장을 1번부터 차례로 이어서 들려준다
+function showClipScene(key) {
+  const clip = findClip(key);
+  if (!clip) return;
+  let [a, b] = [clip.start, clip.end];
+  if (b - a < 0.5) b = a + 3; // 구간이 거의 없으면 그 자리부터 3초
+  sh.heardFrom = null;
+  playRange(a, b);
+}
+
+async function deleteClip(key) {
+  const clip = findClip(key);
+  if (!clip || !confirm(`${rangeText([clip.start, clip.end])} 녹음을 지울까요?`)) return;
+  if (sh.playingClip === key) stopMine();
+  await recStore.del(key).catch(() => {});
+  sh.clips = sh.clips.filter(c => c.key !== key);
+  renderShadowPanel();
+}
+
+// 내 녹음을 영상 순서대로 이어서 들려준다
 async function playAllMine() {
   if (sh.allPlaying) {
     stopAllMine();
     return;
   }
-  const order = myTakes();
+  const order = sortedClips();
   if (!order.length) return;
   pauseShadow();
   const run = sh.allPlaying = {};
-  for (const k of order) {
-    sh.i = k;
+  for (const clip of order) {
+    sh.playingClip = clip.key;
     renderShadowPanel();
-    scrollToSentence();
-    await playTake(k);
+    document.querySelector('.clip.on')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    await playTake(clip);
     if (sh?.allPlaying !== run) return; // 그만 듣기를 눌렀거나 화면을 나갔다
     await new Promise(r => setTimeout(r, 400));
     if (sh?.allPlaying !== run) return;
   }
   stopMine();
   sh.allPlaying = null;
+  sh.playingClip = null;
   renderShadowPanel();
 }
 
 function stopAllMine() {
   if (!sh?.allPlaying) return;
   sh.allPlaying = null;
+  sh.playingClip = null;
   stopMine();
   renderShadowPanel();
 }
@@ -992,13 +1031,19 @@ function stopAllMine() {
 async function clearRecordings() {
   if (!confirm('이 영상의 내 녹음을 모두 지울까요?')) return;
   const video = sh.video;
-  await Promise.all([...sh.recs.keys()].map(k => recStore.del(recKey(video.id, k)).catch(() => {})));
+  stopAllMine();
+  stopMine();
+  try {
+    const keys = (await recStore.keys()).filter(key => String(key).startsWith(video.id + ':'));
+    await Promise.all(keys.map(key => recStore.del(key)));
+  } catch {}
   if (sh?.video !== video) return;
-  sh.recs.clear();
+  sh.clips = [];
+  sh.lastRange = null;
   renderShadowPanel();
 }
 
-// ── 녹음 내려받기: 녹음한 문장을 번호 순서대로 이어 붙여 하나의 WAV 파일로 만든다 ──
+// ── 합쳐서 내려받기: 내 녹음을 영상 순서대로 이어 붙여 하나의 WAV 파일로 만든다 ──
 const EXPORT_RATE = 22050;
 
 // 휴대폰은 AudioContext 를 몇 개밖에 못 만들어서, 소리 장치를 쓰지 않는 OfflineAudioContext 하나로 모두 푼다.
@@ -1030,24 +1075,23 @@ function encodeWav(samples, rate) {
 
 async function exportRecordings() {
   const video = sh.video;
-  // 숙제에 없는 문장은 녹음하지 않아도 되므로, 녹음한 문장만 번호 순서대로 잇는다
-  const order = myTakes();
+  const order = sortedClips();
   if (!order.length) return;
   sh.exporting = true;
   renderShadowPanel();
   try {
     const parts = [];
     const bad = [];
-    for (const k of order) {
+    for (const [k, clip] of order.entries()) {
       try {
-        parts.push(await toMono(sh.recs.get(k)));
+        parts.push(await toMono(clip.blob));
       } catch {
         // 너무 짧게 녹음하면 소리가 없어서 못 읽는다. 전체를 멈추지 않고 그 자리는 짧은 무음으로 채운다
         bad.push(k + 1);
         parts.push(new Float32Array(Math.round(EXPORT_RATE * 0.3)));
       }
     }
-    const gap = Math.round(EXPORT_RATE * 0.5); // 문장 사이 0.5초 쉼
+    const gap = Math.round(EXPORT_RATE * 0.5); // 녹음 사이 0.5초 쉼
     const out = new Float32Array(parts.reduce((sum, p) => sum + p.length, 0) + gap * (parts.length - 1));
     let pos = 0;
     parts.forEach(p => { out.set(p, pos); pos += p.length + gap; });
@@ -1063,7 +1107,7 @@ async function exportRecordings() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    if (bad.length) alert(`파일을 만들었어요. 다만 ${bad.join(', ')}번 문장은 너무 짧아서 소리가 비어 있어요.`);
+    if (bad.length) alert(`파일을 만들었어요. 다만 ${bad.join(', ')}번째 녹음은 너무 짧아서 소리가 비어 있어요.`);
   } catch (e) {
     alert(`녹음 파일을 만들지 못했어요. (${e.message})`);
   }
@@ -1072,10 +1116,11 @@ async function exportRecordings() {
   renderShadowPanel();
 }
 
-// 쉐도잉 화면을 떠날 때 영상과 녹음을 정리한다
+// 따라 말하기 화면을 떠날 때 영상과 녹음을 정리한다
 function stopShadow() {
   if (!sh) return;
   clearShadowTimers();
+  clearInterval(sh.tick);
   if (sh.recorder?.state === 'recording') sh.recorder.stop();
   stopMine();
   try { sh.player?.destroy?.(); } catch {}
@@ -1142,23 +1187,18 @@ const actions = {
   shRate: el => setShadowOption('rate', Number(el.dataset.v)),
   shRepeat: el => setShadowOption('repeat', Number(el.dataset.v)),
   shAuto: () => setShadowOption('auto', !sh.opts.auto),
-  shRec: el => toggleRecord(Number(el.dataset.i)),
-  shMine: el => playMine(Number(el.dataset.i)),
+  shRec: () => toggleRecord(),
   shRecClear: () => clearRecordings(),
   shExport: () => exportRecordings(),
   shPlayAll: () => playAllMine(),
+  clipPlay: el => playClip(el.dataset.key),
+  clipScene: el => showClipScene(el.dataset.key),
+  clipDel: el => deleteClip(el.dataset.key),
 };
 
 $app.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (el && !el.disabled) actions[el.dataset.act]?.(el, e);
-});
-
-$app.addEventListener('submit', e => {
-  if (e.target.dataset.form !== 'unlock') return;
-  e.preventDefault();
-  const pass = document.getElementById('sh-pass').value;
-  if (pass.trim()) unlockShadow(pass);
 });
 
 $app.addEventListener('change', e => {
