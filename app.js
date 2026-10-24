@@ -643,7 +643,9 @@ async function startShadow(id, mode) {
     clips: [], heardFrom: null, lastRange: null, recRange: null, playingClip: null,
   };
   $app.innerHTML = header(video.title) + `<main class="shadow">
-    <div class="video-box"><div id="yt"></div></div>
+    <div class="video-box"><div id="yt"></div>${mode === 'repeat'
+      // 영상을 직접 누르면 YouTube 메뉴가 떠서, 투명한 막을 씌우고 누르면 재생/멈춤만 한다
+      ? '<button class="video-shield" data-act="rpPlay" aria-label="재생 또는 멈춤"></button>' : ''}</div>
     <div id="sh-panel"></div>
   </main>`;
   renderShadowPanel();
@@ -655,7 +657,10 @@ async function startShadow(id, mode) {
   if (!sh || sh.video !== video) return; // 그 사이에 다른 화면으로 나갔다
   sh.player = new YT.Player('yt', {
     videoId: video.id,
-    playerVars: { playsinline: 1, rel: 0, cc_load_policy: 1, cc_lang_pref: 'en', hl: 'ko' },
+    playerVars: mode === 'repeat'
+      // 따라 말하기: 책 글자를 가리지 않게 YouTube 조작 바·자막·주석을 끈다 (재생은 아래 버튼으로)
+      ? { playsinline: 1, rel: 0, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, cc_load_policy: 0, hl: 'ko' }
+      : { playsinline: 1, rel: 0, cc_load_policy: 1, cc_lang_pref: 'en', hl: 'ko' },
     events: {
       onReady: () => sh?.player?.setPlaybackRate(sh.opts.rate),
       // 영상 화면의 재생 버튼으로 들어도 '들은 구간'이 기록되도록 재생 시작을 지켜본다
