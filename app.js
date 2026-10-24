@@ -123,14 +123,13 @@ const state = {
   // 지난번에 받아 둔 단어로 먼저 그리고, 새 단어는 아래에서 받아 온다
   words: store.get(store.get('sheetUrl', '') ? 'words' : 'builtinWords', null) || [],
   stars: new Set(store.get('stars', [])),
-  wrong: new Set(store.get('wrong', [])),
   unit: store.get('unit', null),
   sheetUrl: store.get('sheetUrl', ''),
   screen: 'home',
   src: 'all',
 };
 
-const LABEL = { all: '단어', starred: '별표 단어', wrong: '오답 노트' };
+const LABEL = { all: '단어', starred: '별표 단어' };
 
 async function loadBuiltin() {
   const res = await fetch(`${BUILTIN_CSV}?t=${Date.now()}`, { cache: 'no-store' });
@@ -159,23 +158,12 @@ function setUnit(u) {
 
 function wordsFor(src) {
   if (src === 'starred') return state.words.filter(w => state.stars.has(keyOf(w)));
-  if (src === 'wrong') return state.words.filter(w => state.wrong.has(keyOf(w)));
   return state.unit ? state.words.filter(w => w.unit === state.unit) : state.words;
 }
 
 function toggleStar(key) {
   state.stars.has(key) ? state.stars.delete(key) : state.stars.add(key);
   store.set('stars', [...state.stars]);
-}
-
-function markWrong(w) {
-  state.wrong.add(keyOf(w));
-  store.set('wrong', [...state.wrong]);
-}
-
-// 맞히면 오답 노트에서 빠진다
-function markRight(w) {
-  if (state.wrong.delete(keyOf(w))) store.set('wrong', [...state.wrong]);
 }
 
 // ───────── 발음 ─────────
@@ -293,9 +281,9 @@ function renderHome() {
       </select></label>` : ''}
     ${menu('📖', '카드 학습', '카드를 넘기며 단어 외우기', '#FFCC80', '#/cards/all')}
     ${menu('✏️', '퀴즈', '뜻 맞히기 10문제', '#90CAF9', '#/quiz/all')}
+    ${menu('✍️', '철자 쓰기', '뜻 보고 영어 철자 쓰기 10문제', '#F48FB1', '#/spell/all')}
     ${menu('📋', '단어 목록', '단어를 한눈에 보기', '#A5D6A7', '#/list/all')}
     ${menu('⭐', '별표 단어', `${wordsFor('starred').length}개`, '#FFF59D', '#/list/starred')}
-    ${menu('❌', '오답 노트', `틀린 단어 ${wordsFor('wrong').length}개`, '#EF9A9A', '#/list/wrong')}
     ${menu('🎧', 'Shadowing', '영상 보며 문장마다 따라 말하기', '#CE93D8', '#/shadow')}
     ${menu('🗣', '따라 말하기', '영상 듣고 자유롭게 따라 말해서 녹음하기', '#80CBC4', '#/repeat')}
   </main>`;
@@ -409,7 +397,7 @@ function renderQuiz() {
       z.score === total ? ['🏆', '모두 맞았어요! 최고예요!'] :
       ratio >= 0.8 ? ['🌟', '아주 잘했어요!'] :
       ratio >= 0.5 ? ['👍', '잘했어요! 조금만 더 연습해요.'] :
-      ['💪', '괜찮아요! 오답 노트로 다시 연습해요.'];
+      ['💪', '괜찮아요! 다시 한 번 연습해요.'];
     $app.innerHTML = top + `<main><div class="result">
       <div class="emoji">${emoji}</div>
       <h2>${total}문제 중 ${z.score}개 맞았어요!</h2>
@@ -448,12 +436,7 @@ function chooseAnswer(i) {
   if (z.selected != null) return;
   const q = z.questions[z.i];
   z.selected = i;
-  if (i === q.answer) {
-    z.score++;
-    markRight(q.word);
-  } else {
-    markWrong(q.word);
-  }
+  if (i === q.answer) z.score++;
   if (!q.askEnglish) speak(q.word.english);
   renderQuiz();
   document.querySelector('[data-act="qnext"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -468,6 +451,112 @@ function nextQuestion() {
   if (q?.askEnglish) speak(q.word.english);
 }
 
+// ───────── 철자 쓰기 ─────────
+let spell = null;
+
+// 대소문자, 앞뒤·여러 칸 띄어쓰기, 휴대폰 키보드의 둥근 따옴표 차이는 틀린 걸로 치지 않는다
+const normSpell = s => s.trim().toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, ' ');
+
+const spellHint = () => store.get('spellHint', 'none'); // 'none' 전부 쓰기 | 'first' 첫 글자 알려주기
+
+function startSpell(src) {
+  spell = { src, words: shuffle(wordsFor(src)).slice(0, 10), i: 0, typed: '', result: null, score: 0 };
+  renderSpell();
+}
+
+// 글자 수만큼 칸을 보여 준다. 띄어쓰기·하이픈은 그대로 두고, 힌트를 고르면 첫 글자를 보여 준다
+function spellPattern(word) {
+  let first = true;
+  return [...word].map(ch => {
+    if (ch === ' ') return '<i class="gap"></i>';
+    if (!/[a-z]/i.test(ch)) return `<span>${esc(ch)}</span>`;
+    const show = first && spellHint() === 'first';
+    first = false;
+    return show ? `<span class="on">${esc(ch)}</span>` : '<span>_</span>';
+  }).join('');
+}
+
+function renderSpell() {
+  const z = spell;
+  const top = header(`${LABEL[z.src]} 철자 쓰기`);
+  if (!z.words.length) {
+    $app.innerHTML = top + empty('철자를 쓸 단어가 없어요.');
+    return;
+  }
+  const total = z.words.length;
+  if (z.i >= total) {
+    const ratio = z.score / total;
+    const [emoji, cheer] =
+      z.score === total ? ['🏆', '철자를 모두 맞혔어요! 최고예요!'] :
+      ratio >= 0.8 ? ['🌟', '아주 잘했어요!'] :
+      ratio >= 0.5 ? ['👍', '잘했어요! 조금만 더 연습해요.'] :
+      ['💪', '괜찮아요! 다시 한 번 연습해요.'];
+    $app.innerHTML = top + `<main><div class="result">
+      <div class="emoji">${emoji}</div>
+      <h2>${total}문제 중 ${z.score}개 맞았어요!</h2>
+      <p>${cheer}</p>
+      <button class="btn" data-act="spellRetry">다시 하기</button>
+      <button class="btn outline" data-act="nav" data-href="#/">처음으로</button>
+    </div></main>`;
+    return;
+  }
+
+  const w = z.words[z.i];
+  const answered = z.result != null;
+  const hint = spellHint();
+  const opt = (v, label) => `<button class="opt ${hint === v ? 'on' : ''}" data-act="spellHint" data-v="${v}">${label}</button>`;
+  $app.innerHTML = top + `<main>
+    <div class="progress-text">${z.i + 1} / ${total}</div>
+    <div class="progress"><div style="width:${((z.i + 1) / total) * 100}%"></div></div>
+    <div class="opts"><span>힌트</span>${opt('none', '전부 쓰기')}${opt('first', '첫 글자 알려주기')}</div>
+    <div class="question">
+      <div class="ask">이 뜻의 영어 단어를 써 보세요</div>
+      <div class="prompt"><span>${esc(w.korean)}</span></div>
+      <div class="pattern">${spellPattern(w.english)}</div>
+      <button class="btn small outline" data-act="speak" data-text="${esc(w.english)}">🔊 발음 듣기</button>
+    </div>
+    <form class="spell-form" data-form="spell">
+      <input id="spell-in" type="text" value="${esc(z.typed)}" placeholder="영어로 쓰기"
+        autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" ${answered ? 'disabled' : ''}>
+      ${answered ? '' : '<button class="btn" type="submit">확인</button>'}
+    </form>
+    ${answered ? `
+      <div class="feedback ${z.result ? 'ok' : 'no'}">${z.result ? '정답이에요! 🎉' : `아쉬워요! 정답은 <b class="answer">${esc(w.english)}</b> 이에요.`}</div>
+      <button class="btn block" data-act="spellNext">${z.i + 1 < total ? '다음 문제 ▶' : '결과 보기'}</button>` : ''}
+  </main>`;
+
+  if (!answered) {
+    const input = document.getElementById('spell-in');
+    // 첫 글자 힌트면 입력 칸에도 첫 글자를 미리 넣어 준다
+    if (hint === 'first' && !input.value) input.value = w.english.match(/[a-z]/i)?.[0] || '';
+    input.addEventListener('input', () => { spell.typed = input.value; });
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+}
+
+function checkSpell() {
+  const z = spell;
+  if (z.result != null) return;
+  const input = document.getElementById('spell-in');
+  z.typed = input.value;
+  if (!z.typed.trim()) return;
+  const w = z.words[z.i];
+  z.result = normSpell(z.typed) === normSpell(w.english);
+  if (z.result) z.score++;
+  speak(w.english);
+  renderSpell();
+  document.querySelector('[data-act="spellNext"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function nextSpell() {
+  spell.i++;
+  spell.typed = '';
+  spell.result = null;
+  renderSpell();
+  window.scrollTo(0, 0);
+}
+
 // ───────── 단어 목록 ─────────
 function renderList(src) {
   const list = wordsFor(src);
@@ -475,7 +564,6 @@ function renderList(src) {
   if (!list.length) {
     const msg = {
       starred: '별표한 단어가 없어요.\n카드나 목록에서 ☆를 눌러 보세요!',
-      wrong: '틀린 단어가 없어요.\n정말 잘했어요! 🎉',
       all: '단어가 없어요.',
     }[src];
     $app.innerHTML = header(title) + empty(msg);
@@ -485,12 +573,12 @@ function renderList(src) {
     <div class="row">
       <button class="btn small" data-act="nav" data-href="#/cards/${src}">📖 카드 학습</button>
       <button class="btn small" data-act="nav" data-href="#/quiz/${src}">✏️ 퀴즈</button>
+      <button class="btn small" data-act="nav" data-href="#/spell/${src}">✍️ 철자</button>
     </div>
     <div class="list">${list.map(w => `
       <div class="item">
         <div class="text"><b>${esc(w.english)}</b><span>${esc(w.korean)}</span></div>
         ${speakBtn(w.english)}${starBtn(keyOf(w))}
-        ${src === 'wrong' ? `<button class="icon learned" data-act="learned" data-key="${esc(keyOf(w))}" aria-label="외웠어요">${ICON.check}</button>` : ''}
       </div>`).join('')}
     </div>
   </main>`;
@@ -544,7 +632,7 @@ async function loadFromSettings() {
 }
 
 async function resetWords() {
-  if (!confirm('기본 단어로 되돌릴까요?\n시트 연결이 풀리고, 별표와 오답 기록은 그대로 남아요.')) return;
+  if (!confirm('기본 단어로 되돌릴까요?\n시트 연결이 풀리고, 별표 기록은 그대로 남아요.')) return;
   state.sheetUrl = '';
   store.set('words', null);
   store.set('sheetUrl', '');
@@ -1339,6 +1427,7 @@ function route() {
     if (src && src !== 'all') startShadow(src, screen); else renderShadowList(screen);
   }
   else if (screen === 'cards') startCards(s);
+  else if (screen === 'spell') startSpell(s);
   else if (screen === 'quiz') startQuiz(s);
   else if (screen === 'list') renderList(s);
   else if (screen === 'settings') renderSettings();
@@ -1355,11 +1444,6 @@ const actions = {
     if (state.screen === 'list') renderList(state.src);
     else document.querySelectorAll(`[data-act="star"][data-key="${CSS.escape(el.dataset.key)}"]`)
       .forEach(b => { b.outerHTML = starBtn(el.dataset.key); });
-  },
-  learned: el => {
-    state.wrong.delete(el.dataset.key);
-    store.set('wrong', [...state.wrong]);
-    renderList(state.src);
   },
   flip: el => { cards.flipped = !cards.flipped; el.classList.toggle('flipped', cards.flipped); },
   prev: () => moveCard(-1),
@@ -1392,6 +1476,9 @@ const actions = {
   shRecClear: () => clearRecordings(),
   shExport: () => exportRecordings(),
   shPlayAll: () => playAllMine(),
+  spellHint: el => { store.set('spellHint', el.dataset.v); renderSpell(); },
+  spellNext: () => nextSpell(),
+  spellRetry: () => startSpell(spell.src),
   rpPlay: () => toggleFreePlay(),
   rpRec: () => toggleFreeRecord(),
   clipPlay: el => playClip(el.dataset.key),
@@ -1405,6 +1492,11 @@ $app.addEventListener('click', e => {
 });
 
 $app.addEventListener('submit', e => {
+  if (e.target.dataset.form === 'spell') {
+    e.preventDefault();
+    checkSpell();
+    return;
+  }
   if (e.target.dataset.form !== 'unlock') return;
   e.preventDefault();
   const pass = document.getElementById('sh-pass').value;

@@ -150,7 +150,27 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 .feedback.ok { color: #2E7D32; }
 .feedback.no { color: #C62828; }
 
-.result { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; }
+/* 철자 쓰기 */
+.question .pattern {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+  margin: 14px 0 12px; font-size: 26px; font-weight: 800; letter-spacing: 1px;
+}
+.question .pattern span { min-width: 16px; text-align: center; color: #A1887F; }
+.question .pattern span.on { color: var(--primary); }
+.question .pattern .gap { width: 14px; }
+.question .btn.small { min-height: 42px; padding: 0 16px; font-size: 15px; }
+.spell-form { display: flex; gap: 10px; }
+.spell-form input {
+  flex: 1; min-width: 0; height: 60px; padding: 0 16px;
+  border: 2px solid var(--line); border-radius: 16px; background: #fff;
+  font: inherit; font-size: 26px; color: var(--text); letter-spacing: 1px;
+}
+.spell-form input:focus { outline: none; border-color: var(--primary); }
+.spell-form input:disabled { background: #FAFAFA; color: var(--muted); }
+.spell-form .btn { flex: 0 0 auto; min-height: 60px; padding: 0 22px; }
+.feedback .answer { font-size: 24px; color: #2E7D32; }
+
+.result {flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; }
 .result .emoji { font-size: 80px; }
 .result h2 { margin: 8px 0 0; font-size: 26px; }
 .result p { margin: 0 0 24px; font-size: 18px; }
