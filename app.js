@@ -662,6 +662,9 @@ const SHADOW_MODES = {
 
 const fmtTime = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
+// 숙제 구간 [시작, 끝): 앞쪽 titles 개(제목·소개)와 뒤쪽 outro 개(종료)는 숙제에서 뺀다
+const homework = v => [v.titles || 0, v.segments.length - (v.outro || 0)];
+
 async function loadShadowVideos() {
   if (!shadowVideos) {
     // GitHub Pages 가 최대 10분 캐시하므로 주소를 바꿔서 항상 새 파일을 받는다
@@ -700,7 +703,7 @@ async function renderShadowList(mode) {
     ${videos.map(v => `
       <button class="video-card" data-act="nav" data-href="#/${mode}/${esc(v.id)}">
         <img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy">
-        <span><b>${esc(v.title)}</b><small>${esc(v.level || '')} · ${v.segments.length - (v.titles || 0)}문장</small></span>
+        <span><b>${esc(v.title)}</b><small>${esc(v.level || '')} · ${homework(v)[1] - homework(v)[0]}문장</small></span>
       </button>`).join('')}
   </main>`;
 }
@@ -765,15 +768,16 @@ function renderShadowPanel() {
   const n = video.segments.length;
   const [s, e] = video.segments[i];
   const opt = (act, v, label, on) => `<button class="opt ${on ? 'on' : ''}" data-act="${act}" data-v="${v}">${label}</button>`;
-  // 앞쪽 제목·소개 구간은 숙제가 아니라서 번호를 매기지 않고 녹음도 받지 않는다
-  const T = video.titles || 0;
-  const isTitle = k => k < T;
+  // 앞쪽 제목·소개와 뒤쪽 종료 구간은 숙제가 아니라서 번호를 매기지 않고 녹음도 받지 않는다
+  const [T, end] = homework(video);
+  const isTitle = k => k < T || k >= end;
+  const tag = k => (k < T ? '제목' : '종료');
   const no = k => k - T + 1; // 화면에 보이는 문장 번호
-  const total = n - T;
+  const total = end - T;
   const text = k => sh.texts[k] || '';
 
   const top = `
-    <div class="progress-text">${isTitle(i) ? '제목' : `문장 ${no(i)} / ${total}`} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
+    <div class="progress-text">${isTitle(i) ? tag(i) : `문장 ${no(i)} / ${total}`} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
     <div class="progress"><div style="width:${isTitle(i) ? 0 : (no(i) / total) * 100}%"></div></div>
     ${sh.mode === 'shadow' && text(i) ? `<div class="sh-now">${esc(text(i))}</div>` : ''}
     <div class="sh-controls">
@@ -790,7 +794,7 @@ function renderShadowPanel() {
       <span>반복</span>${[1, 2, 3].map(v => opt('shRepeat', v, v + '번', opts.repeat === v)).join('')}
       <button class="opt ${opts.auto ? 'on' : ''}" data-act="shAuto">자동 넘김</button>
     </div>`;
-  const ctx = { i, T, isTitle, no, total, text };
+  const ctx = { i, T, isTitle, tag, no, total, text };
   if (sh.mode === 'shadow') {
     panel.innerHTML = top + shadowRecRow(ctx) + options + shadowBottom(ctx);
     return;
@@ -808,18 +812,18 @@ function renderShadowPanel() {
 }
 
 // Shadowing: 지금 문장 녹음 버튼
-function shadowRecRow({ i, isTitle, no }) {
+function shadowRecRow({ i, isTitle, tag, no }) {
   const recording = !!sh.recorder;
   return `
     <div class="rec-row">
       <button class="btn ${recording && sh.recIndex === i ? 'rec-on' : ''}" data-act="shRec" data-i="${i}" ${isTitle(i) && !recording ? 'disabled' : ''}>${
-        sh.recStarting && sh.recIndex === i ? '⏳ 준비 중…' : recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : isTitle(i) ? '🎤 제목은 녹음 안 해요' : `🎤 ${no(i)}번 녹음`}</button>
+        sh.recStarting && sh.recIndex === i ? '⏳ 준비 중…' : recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : isTitle(i) ? `🎤 ${tag(i)} 부분은 녹음 안 해요` : `🎤 ${no(i)}번 녹음`}</button>
       <button class="btn outline" data-act="shMine" data-i="${i}" ${sh.recs.has(i) && !isTitle(i) && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
     </div>`;
 }
 
 // Shadowing: 문장 목록(글자 + 문장마다 녹음)
-function shadowBottom({ i, isTitle, no, total, text }) {
+function shadowBottom({ i, isTitle, tag, no, total, text }) {
   const video = sh.video;
   const recording = !!sh.recorder;
   const done = myTakes().length;
@@ -850,7 +854,7 @@ function shadowBottom({ i, isTitle, no, total, text }) {
       const recNow = recording && sh.recIndex === k;
       const starting = sh.recStarting && sh.recIndex === k;
       const line = `<button class="sent-main" data-act="shLoop" data-i="${k}">
-          <span class="num">${looping ? '🔁' : isTitle(k) ? '제목' : no(k)}</span>
+          <span class="num">${looping ? '🔁' : isTitle(k) ? tag(k) : no(k)}</span>
           <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
         </button>`;
       if (isTitle(k)) return `<div class="sent title ${k === i ? 'on' : ''}">${line}</div>`;
@@ -1105,10 +1109,10 @@ const recKey = (id, k) => `${id}:${k}`;
 const isSentenceKey = (id, key) => new RegExp(`^${id.replace(/[-\\^$.*+?()[\]{}|]/g, '\\$&')}:\\d+$`).test(key);
 const isClipKey = (id, key) => String(key).startsWith(`${id}:clip:`);
 
-// Shadowing 숙제용 녹음 문장 번호들 (제목 구간은 빼고, 번호 순서대로)
+// Shadowing 숙제용 녹음 문장 번호들 (제목·종료 구간은 빼고, 번호 순서대로)
 function myTakes() {
-  const T = sh.video.titles || 0;
-  return [...sh.recs.keys()].filter(k => k >= T).sort((a, b) => a - b);
+  const [T, end] = homework(sh.video);
+  return [...sh.recs.keys()].filter(k => k >= T && k < end).sort((a, b) => a - b);
 }
 
 async function loadRecordings(video) {
@@ -1179,7 +1183,8 @@ async function beginRecording(onStop) {
 async function toggleSentenceRecord(k) {
   if (sh.recStarting) return; // 마이크를 켜는 중에 또 누르면 녹음이 두 개 생기므로 무시한다
   if (sh.recorder) { sh.recorder.stop(); return; }
-  if (k < (sh.video.titles || 0)) return; // 제목 구간은 녹음하지 않는다
+  const [T, end] = homework(sh.video);
+  if (k < T || k >= end) return; // 제목·종료 구간은 녹음하지 않는다
   sh.recIndex = k;
   sh.i = k;
   const ok = await beginRecording((blob, len, video) => {
