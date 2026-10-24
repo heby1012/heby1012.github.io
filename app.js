@@ -696,11 +696,11 @@ function renderShadowPanel() {
     </form>` : ''}
     <div class="rec-sum">
       <div><b>🎤 내 녹음 ${sh.recs.size} / ${n}</b>
-        <span>${sh.recs.size === n ? '모두 녹음했어요! 🎉' : `${n - sh.recs.size}문장 남았어요`}</span></div>
+        <span>${sh.recs.size === n ? '모두 녹음했어요! 🎉' : '숙제에 있는 문장만 녹음해도 돼요'}</span></div>
       <button class="btn small block outline-white" data-act="shPlayAll" ${sh.recs.size && !recording ? '' : 'disabled'}>
         ${sh.allPlaying ? '⏹ 그만 듣기' : `▶ 전체 듣기 (${sh.recs.size}문장)`}</button>
-      <button class="btn small block" data-act="shExport" ${sh.recs.size === n && !sh.exporting && !recording ? '' : 'disabled'}>
-        ${sh.exporting ? '파일 만드는 중…' : '⬇️ 전체 녹음 내려받기'}</button>
+      <button class="btn small block" data-act="shExport" ${sh.recs.size && !sh.exporting && !recording ? '' : 'disabled'}>
+        ${sh.exporting ? '파일 만드는 중…' : `⬇️ 녹음 내려받기 (${sh.recs.size}문장)`}</button>
       ${sh.recs.size ? '<button class="link" data-act="shRecClear">녹음 모두 지우기</button>' : ''}
     </div>
     <div class="info">문장을 누르면 그 문장만 계속 반복해요. 🎤를 누르면 녹음, 한 번 더 누르면 끝나요.</div>
@@ -977,7 +977,7 @@ async function clearRecordings() {
   renderShadowPanel();
 }
 
-// ── 전체 녹음 내려받기: 문장 순서대로 이어 붙여 하나의 WAV 파일로 만든다 ──
+// ── 녹음 내려받기: 녹음한 문장을 번호 순서대로 이어 붙여 하나의 WAV 파일로 만든다 ──
 const EXPORT_RATE = 22050;
 
 // 휴대폰은 AudioContext 를 몇 개밖에 못 만들어서, 소리 장치를 쓰지 않는 OfflineAudioContext 하나로 모두 푼다.
@@ -1009,14 +1009,15 @@ function encodeWav(samples, rate) {
 
 async function exportRecordings() {
   const video = sh.video;
-  const n = video.segments.length;
-  if (sh.recs.size < n) return;
+  // 숙제에 없는 문장은 녹음하지 않아도 되므로, 녹음한 문장만 번호 순서대로 잇는다
+  const order = [...sh.recs.keys()].sort((a, b) => a - b);
+  if (!order.length) return;
   sh.exporting = true;
   renderShadowPanel();
   try {
     const parts = [];
     const bad = [];
-    for (let k = 0; k < n; k++) {
+    for (const k of order) {
       try {
         parts.push(await toMono(sh.recs.get(k)));
       } catch {
@@ -1026,7 +1027,7 @@ async function exportRecordings() {
       }
     }
     const gap = Math.round(EXPORT_RATE * 0.5); // 문장 사이 0.5초 쉼
-    const out = new Float32Array(parts.reduce((sum, p) => sum + p.length, 0) + gap * (n - 1));
+    const out = new Float32Array(parts.reduce((sum, p) => sum + p.length, 0) + gap * (parts.length - 1));
     let pos = 0;
     parts.forEach(p => { out.set(p, pos); pos += p.length + gap; });
 

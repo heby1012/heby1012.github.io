@@ -1,5 +1,5 @@
 // 인터넷이 되면 항상 최신 파일을 받고, 안 되면 저장해 둔 파일로 연다.
-const CACHE = 'wordbook-2026-10-24.5'; // index.html 의 v= 값과 같이 바꾼다
+const CACHE = 'wordbook-2026-10-24.6'; // index.html 의 v= 값과 같이 바꾼다
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'words.csv', 'shadowing.json','manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
