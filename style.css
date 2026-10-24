@@ -259,6 +259,8 @@ main { flex: 1; padding: 8px 16px 20px; display: flex; flex-direction: column; g
 }
 .sent .txt { font-size: 17px; line-height: 1.4; }
 .sent .txt small { color: var(--muted); }
+.sent.title .num { width: auto; padding: 0 8px; font-size: 13px; }
+.sent.title .txt { color: var(--muted); }
 .sent.on { background: #FFF3E0; box-shadow: inset 4px 0 0 var(--primary); }
 .sent.on .num { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 800; }
 

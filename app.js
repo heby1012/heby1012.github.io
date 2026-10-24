@@ -603,7 +603,7 @@ async function renderShadowList() {
     ${videos.map(v => `
       <button class="video-card" data-act="nav" data-href="#/shadow/${esc(v.id)}">
         <img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy">
-        <span><b>${esc(v.title)}</b><small>${esc(v.level || '')} · ${v.segments.length}문장</small></span>
+        <span><b>${esc(v.title)}</b><small>${esc(v.level || '')} · ${v.segments.length - (v.titles || 0)}문장</small></span>
       </button>`).join('')}
   </main>`;
 }
@@ -659,13 +659,19 @@ function renderShadowPanel() {
   const recording = sh.recorder?.state === 'recording';
   const opt = (act, v, label, on) => `<button class="opt ${on ? 'on' : ''}" data-act="${act}" data-v="${v}">${label}</button>`;
   const text = k => sh.texts[k] || '';
+  // 앞쪽 제목·소개 구간은 숙제가 아니라서 번호를 매기지 않고 녹음도 받지 않는다
+  const T = video.titles || 0;
+  const isTitle = k => k < T;
+  const no = k => k - T + 1; // 화면에 보이는 문장 번호
+  const total = n - T;
+  const done = myTakes().length;
 
   const locked = video.enc && !sh.texts.length;
   const typed = document.getElementById('sh-pass')?.value || ''; // 재생 중 다시 그려도 입력 중인 비밀번호를 지키기
 
   panel.innerHTML = `
-    <div class="progress-text">문장 ${i + 1} / ${n} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
-    <div class="progress"><div style="width:${((i + 1) / n) * 100}%"></div></div>
+    <div class="progress-text">${isTitle(i) ? '제목' : `문장 ${no(i)} / ${total}`} <small>${fmtTime(s)} – ${fmtTime(e)}</small></div>
+    <div class="progress"><div style="width:${isTitle(i) ? 0 : (no(i) / total) * 100}%"></div></div>
     ${text(i) ? `<div class="sh-now">${esc(text(i))}</div>` : ''}
     <div class="sh-controls">
       <button class="round" data-act="shPrev" ${i === 0 ? 'disabled' : ''} aria-label="이전 문장">⏮</button>
@@ -674,9 +680,9 @@ function renderShadowPanel() {
       <button class="round" data-act="shNext" ${i === n - 1 ? 'disabled' : ''} aria-label="다음 문장">⏭</button>
     </div>
     <div class="rec-row">
-      <button class="btn ${recording && sh.recIndex === i ? 'rec-on' : ''}" data-act="shRec" data-i="${i}">${
-        sh.recStarting === i ? '⏳ 준비 중…' : recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : `🎤 ${i + 1}번 녹음`}</button>
-      <button class="btn outline" data-act="shMine" data-i="${i}" ${sh.recs.has(i) && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
+      <button class="btn ${recording && sh.recIndex === i ? 'rec-on' : ''}" data-act="shRec" data-i="${i}" ${isTitle(i) && !recording ? 'disabled' : ''}>${
+        sh.recStarting === i ? '⏳ 준비 중…' : recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : isTitle(i) ? '🎤 제목은 녹음 안 해요' : `🎤 ${no(i)}번 녹음`}</button>
+      <button class="btn outline" data-act="shMine" data-i="${i}" ${sh.recs.has(i) && !isTitle(i) && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
     </div>
     <div class="opts">
       <span>속도</span>${[0.5, 0.75, 1].map(v => opt('shRate', v, v + 'x', opts.rate === v)).join('')}
@@ -685,7 +691,7 @@ function renderShadowPanel() {
       <span>반복</span>${[1, 2, 3].map(v => opt('shRepeat', v, v + '번', opts.repeat === v)).join('')}
       <button class="opt ${opts.auto ? 'on' : ''}" data-act="shAuto">자동 넘김</button>
     </div>
-    <div class="label">${n} 문장</div>
+    <div class="label">${total} 문장</div>
     ${locked ? `<form class="lock" data-form="unlock">
       <b>🔒 비밀번호를 넣으면 문장 글자가 보여요</b>
       <div class="row">
@@ -695,12 +701,12 @@ function renderShadowPanel() {
       ${sh.lockMsg ? `<div class="msg err">${esc(sh.lockMsg)}</div>` : ''}
     </form>` : ''}
     <div class="rec-sum">
-      <div><b>🎤 내 녹음 ${sh.recs.size} / ${n}</b>
-        <span>${sh.recs.size === n ? '모두 녹음했어요! 🎉' : '숙제에 있는 문장만 녹음해도 돼요'}</span></div>
-      <button class="btn small block outline-white" data-act="shPlayAll" ${sh.recs.size && !recording ? '' : 'disabled'}>
-        ${sh.allPlaying ? '⏹ 그만 듣기' : `▶ 전체 듣기 (${sh.recs.size}문장)`}</button>
-      <button class="btn small block" data-act="shExport" ${sh.recs.size && !sh.exporting && !recording ? '' : 'disabled'}>
-        ${sh.exporting ? '파일 만드는 중…' : `⬇️ 녹음 내려받기 (${sh.recs.size}문장)`}</button>
+      <div><b>🎤 내 녹음 ${done} / ${total}</b>
+        <span>${done === total ? '모두 녹음했어요! 🎉' : '숙제에 있는 문장만 녹음해도 돼요'}</span></div>
+      <button class="btn small block outline-white" data-act="shPlayAll" ${done && !recording ? '' : 'disabled'}>
+        ${sh.allPlaying ? '⏹ 그만 듣기' : `▶ 전체 듣기 (${done}문장)`}</button>
+      <button class="btn small block" data-act="shExport" ${done && !sh.exporting && !recording ? '' : 'disabled'}>
+        ${sh.exporting ? '파일 만드는 중…' : `⬇️ 녹음 내려받기 (${done}문장)`}</button>
       ${sh.recs.size ? '<button class="link" data-act="shRecClear">녹음 모두 지우기</button>' : ''}
     </div>
     <div class="info">문장을 누르면 그 문장만 계속 반복해요. 🎤를 누르면 녹음, 한 번 더 누르면 끝나요.</div>
@@ -708,9 +714,17 @@ function renderShadowPanel() {
       const looping = sh.loop && sh.playing && k === i;
       const recNow = recording && sh.recIndex === k;
       const starting = sh.recStarting === k;
+      if (isTitle(k)) {
+        return `<div class="sent title ${k === i ? 'on' : ''}">
+          <button class="sent-main" data-act="shLoop" data-i="${k}">
+            <span class="num">${looping ? '🔁' : '제목'}</span>
+            <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
+          </button>
+        </div>`;
+      }
       return `<div class="sent ${k === i ? 'on' : ''}">
         <button class="sent-main" data-act="shLoop" data-i="${k}">
-          <span class="num">${looping ? '🔁' : k + 1}</span>
+          <span class="num">${looping ? '🔁' : no(k)}</span>
           <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
         </button>
         ${sh.recs.has(k) && !recNow && !starting ? `<button class="mini play" data-act="shMine" data-i="${k}" aria-label="내 녹음 듣기">▶</button>` : ''}
@@ -849,6 +863,12 @@ const recStore = (() => {
 
 const recKey = (id, k) => `${id}:${k}`;
 
+// 숙제용 내 녹음 문장 번호들 (제목 구간은 빼고, 번호 순서대로)
+function myTakes() {
+  const T = sh.video.titles || 0;
+  return [...sh.recs.keys()].filter(k => k >= T).sort((a, b) => a - b);
+}
+
 async function loadRecordings(video) {
   try {
     const keys = (await recStore.keys()).filter(key => String(key).startsWith(video.id + ':'));
@@ -868,6 +888,7 @@ async function toggleRecord(k) {
     sh.recorder.stop();
     return;
   }
+  if (k < (sh.video.titles || 0)) return; // 제목 구간은 녹음하지 않는다
   stopAllMine();
   stopMine();
   sh.recStarting = k;
@@ -943,7 +964,7 @@ async function playAllMine() {
     stopAllMine();
     return;
   }
-  const order = [...sh.recs.keys()].sort((a, b) => a - b);
+  const order = myTakes();
   if (!order.length) return;
   pauseShadow();
   const run = sh.allPlaying = {};
@@ -1010,7 +1031,7 @@ function encodeWav(samples, rate) {
 async function exportRecordings() {
   const video = sh.video;
   // 숙제에 없는 문장은 녹음하지 않아도 되므로, 녹음한 문장만 번호 순서대로 잇는다
-  const order = [...sh.recs.keys()].sort((a, b) => a - b);
+  const order = myTakes();
   if (!order.length) return;
   sh.exporting = true;
   renderShadowPanel();
