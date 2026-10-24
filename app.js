@@ -674,7 +674,8 @@ function renderShadowPanel() {
       <button class="round" data-act="shNext" ${i === n - 1 ? 'disabled' : ''} aria-label="다음 문장">⏭</button>
     </div>
     <div class="rec-row">
-      <button class="btn ${recording && sh.recIndex === i ? 'rec-on' : ''}" data-act="shRec" data-i="${i}">${recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : '🎤 이 문장 녹음'}</button>
+      <button class="btn ${recording && sh.recIndex === i ? 'rec-on' : ''}" data-act="shRec" data-i="${i}">${
+        sh.recStarting === i ? '⏳ 준비 중…' : recording && sh.recIndex === i ? '⏹ 녹음 끝내기' : `🎤 ${i + 1}번 녹음`}</button>
       <button class="btn outline" data-act="shMine" data-i="${i}" ${sh.recs.has(i) && !recording ? '' : 'disabled'}>🔊 내 목소리</button>
     </div>
     <div class="opts">
@@ -706,14 +707,15 @@ function renderShadowPanel() {
     <div class="sent-list">${video.segments.map(([a], k) => {
       const looping = sh.loop && sh.playing && k === i;
       const recNow = recording && sh.recIndex === k;
+      const starting = sh.recStarting === k;
       return `<div class="sent ${k === i ? 'on' : ''}">
         <button class="sent-main" data-act="shLoop" data-i="${k}">
           <span class="num">${looping ? '🔁' : k + 1}</span>
           <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
         </button>
-        ${sh.recs.has(k) && !recNow ? `<button class="mini play" data-act="shMine" data-i="${k}" aria-label="내 녹음 듣기">▶</button>` : ''}
-        <button class="mini mic ${recNow ? 'rec-on' : sh.recs.has(k) ? 'done' : ''}" data-act="shRec" data-i="${k}"
-          aria-label="${recNow ? '녹음 끝내기' : '녹음하기'}">${recNow ? '⏹' : '🎤'}</button>
+        ${sh.recs.has(k) && !recNow && !starting ? `<button class="mini play" data-act="shMine" data-i="${k}" aria-label="내 녹음 듣기">▶</button>` : ''}
+        <button class="mini mic ${recNow || starting ? 'rec-on' : sh.recs.has(k) ? 'done' : ''}" data-act="shRec" data-i="${k}"
+          aria-label="${recNow ? '녹음 끝내기' : '녹음하기'}">${starting ? '⏳' : recNow ? '⏹' : '🎤'}</button>
       </div>`;
     }).join('')}</div>
   `;
@@ -861,21 +863,27 @@ async function loadRecordings(video) {
 
 // 한 번 누르면 녹음 시작, 한 번 더 누르면 끝
 async function toggleRecord(k) {
+  if (sh.recStarting != null) return; // 마이크를 켜는 중에 또 누르면 녹음이 두 개 생기므로 무시한다
   if (sh.recorder?.state === 'recording') {
     sh.recorder.stop();
     return;
   }
   stopAllMine();
-  pauseShadow();
   stopMine();
+  sh.recStarting = k;
+  sh.i = k;
+  pauseShadow(); // 화면에 '준비 중'이 바로 보이도록 다시 그린다
+  const video = sh.video;
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
+    if (sh?.video === video) { sh.recStarting = null; renderShadowPanel(); }
     alert('마이크를 쓸 수 없어요. 크롬에서 열고 마이크 사용을 허용해 주세요.');
     return;
   }
-  const video = sh.video;
+  if (sh?.video !== video) { stream.getTracks().forEach(t => t.stop()); return; }
+  sh.recStarting = null;
   const chunks = [];
   const rec = new MediaRecorder(stream);
   rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
@@ -885,8 +893,10 @@ async function toggleRecord(k) {
     const empty = blob.size === 0;
     if (!empty) recStore.put(recKey(video.id, k), blob).catch(() => {});
     if (sh?.video !== video) return;
-    sh.recorder = null;
-    sh.recIndex = null;
+    if (sh.recorder === rec) {
+      sh.recorder = null;
+      sh.recIndex = null;
+    }
     if (empty) alert('녹음이 안 됐어요. 조금 더 길게 말하고 다시 눌러 주세요.');
     else sh.recs.set(k, blob);
     renderShadowPanel();
