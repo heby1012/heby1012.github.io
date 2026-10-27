@@ -227,6 +227,7 @@ function header(title, { back = true, right = '' } = {}) {
     ${back ? `<button class="icon" data-act="back" aria-label="뒤로">${ICON.back}</button>` : ''}
     <h1>${esc(title)}</h1>
     <div class="right">${right}</div>
+    <span class="ver">${esc(APP_VERSION)}</span>
   </header>`;
 }
 
@@ -724,7 +725,7 @@ async function startShadow(id, mode) {
   sh = {
     mode, video, i: video.titles || 0, player: null, playing: false, left: 0, timer: null, wait: null,
     opts: { rate: 1, repeat: 1, auto: true, ...store.get('shadowOpts', {}) },
-    loop: false, // 문장(번호)을 눌러 그 문장을 계속 반복하는 중
+    once: false, // 문장(번호)을 눌러 그 문장만 한 번 듣는 중
     // 녹음 공통
     recorder: null, recStarting: false, recSince: 0, tick: null,
     audio: null, audioDone: null, allPlaying: null, exporting: false,
@@ -848,13 +849,13 @@ function shadowBottom({ i, isTitle, tag, no, total, text }) {
         ${sh.exporting ? '파일 만드는 중…' : `⬇️ 녹음 내려받기 (${done}문장)`}</button>
       ${sh.recs.size ? '<button class="link" data-act="shRecClear">녹음 모두 지우기</button>' : ''}
     </div>
-    <div class="info">문장을 누르면 그 문장만 계속 반복해요. 🎤를 누르면 녹음, 한 번 더 누르면 끝나요.</div>
+    <div class="info">문장을 누르면 그 문장을 한 번 들려줘요. 🎤를 누르면 녹음, 한 번 더 누르면 끝나요.</div>
     <div class="sent-list">${video.segments.map(([a], k) => {
-      const looping = sh.loop && sh.playing && k === i;
+      const looping = sh.once && sh.playing && k === i;
       const recNow = recording && sh.recIndex === k;
       const starting = sh.recStarting && sh.recIndex === k;
-      const line = `<button class="sent-main" data-act="shLoop" data-i="${k}">
-          <span class="num">${looping ? '🔁' : isTitle(k) ? tag(k) : no(k)}</span>
+      const line = `<button class="sent-main" data-act="shOnce" data-i="${k}">
+          <span class="num">${looping ? '🔊' : isTitle(k) ? tag(k) : no(k)}</span>
           <span class="txt">${text(k) ? esc(text(k)) : `<small>${fmtTime(a)}</small>`}</span>
         </button>`;
       if (isTitle(k)) return `<div class="sent title ${k === i ? 'on' : ''}">${line}</div>`;
@@ -985,12 +986,13 @@ function toggleFreePlay() {
 const sortedClips = () => [...sh.clips].sort((a, b) => a.start - b.start || a.created - b.created);
 
 // ── 영상 재생 ──
-function toggleLoop(k) {
-  if (sh.loop && sh.playing && sh.i === k) {
+// 문장을 누르면 그 문장을 한 번 들려준다. 듣는 중에 다시 누르면 멈춘다
+function playOnce(k) {
+  if (sh.once && sh.playing && sh.i === k) {
     pauseShadow();
     return;
   }
-  playSentence(k, { loop: true });
+  playSentence(k, { once: true });
 }
 
 function clearShadowTimers() {
@@ -1000,13 +1002,13 @@ function clearShadowTimers() {
   sh.scene = false;
 }
 
-// i 번째 문장을 처음부터 (반복 횟수만큼) 들려준다
-function playSentence(i, { loop = false } = {}) {
+// i 번째 문장을 처음부터 (반복 횟수만큼) 들려준다. once 면 반복·자동 넘김 없이 한 번만
+function playSentence(i, { once = false } = {}) {
   if (!sh || sh.recorder) return;
   const n = sh.video.segments.length;
   sh.i = Math.max(0, Math.min(n - 1, i));
-  sh.left = sh.opts.repeat;
-  sh.loop = loop;
+  sh.left = once ? 1 : sh.opts.repeat;
+  sh.once = once;
   stopAllMine();
   stopMine();
   playSegment();
@@ -1029,9 +1031,9 @@ function playSegment() {
     sh.left--;
     // 문장을 들은 만큼 따라 말할 시간을 준다
     const gap = Math.max(1500, ((e - s) / sh.opts.rate) * 1000 + 500);
-    if (sh.loop || sh.left > 0) {
+    if (sh.left > 0) {
       sh.wait = setTimeout(playSegment, gap);
-    } else if (sh.opts.auto && sh.i < sh.video.segments.length - 1) {
+    } else if (!sh.once && sh.opts.auto && sh.i < sh.video.segments.length - 1) {
       sh.wait = setTimeout(() => { playSentence(sh.i + 1); scrollToSentence(); }, gap);
     } else {
       sh.playing = false;
@@ -1052,7 +1054,7 @@ function playRange(a, b) {
   p.seekTo(a, true);
   p.playVideo();
   sh.playing = true;
-  sh.loop = false;
+  sh.once = false;
   sh.scene = true; // 따라 말하기의 재생 상태 맞추기(onPlayerState)가 끼어들지 않게
   renderShadowPanel();
   sh.timer = setInterval(() => {
@@ -1472,7 +1474,7 @@ const actions = {
   shReplay: () => playSentence(sh.i),
   shPrev: () => playSentence(sh.i - 1),
   shNext: () => playSentence(sh.i + 1),
-  shLoop: el => toggleLoop(Number(el.dataset.i)),
+  shOnce: el => playOnce(Number(el.dataset.i)),
   shRate: el => setShadowOption('rate', Number(el.dataset.v)),
   shRepeat: el => setShadowOption('repeat', Number(el.dataset.v)),
   shAuto: () => setShadowOption('auto', !sh.opts.auto),
