@@ -286,7 +286,6 @@ function renderHome() {
     ${menu('📋', '단어 목록', '단어를 한눈에 보기', '#A5D6A7', '#/list/all')}
     ${menu('⭐', '별표 단어', `${wordsFor('starred').length}개`, '#FFF59D', '#/list/starred')}
     ${menu('🎧', 'Shadowing', '영상 보며 문장마다 따라 말하기', '#CE93D8', '#/shadow')}
-    ${menu('🗣', '따라 말하기', '영상 듣고 자유롭게 따라 말해서 녹음하기', '#80CBC4', '#/repeat')}
   </main>`;
 }
 
@@ -1431,7 +1430,8 @@ function route() {
   if (screen !== 'settings') settingsMsg = null;
   stopShadow();
   if (screen === 'shadow' || screen === 'repeat') {
-    if (src && src !== 'all') startShadow(src, screen); else renderShadowList(screen);
+    // 따라 말하기 메뉴는 없앴다. 예전 #/repeat 주소는 Shadowing 으로 연다
+    if (src && src !== 'all') startShadow(src, 'shadow'); else renderShadowList('shadow');
   }
   else if (screen === 'cards') startCards(s);
   else if (screen === 'spell') startSpell(s);
